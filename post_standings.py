@@ -664,6 +664,52 @@ def fhspb_pervenstvo_standings(age, spb_by_group):
     return result
 
 
+def send_album(topic_id, image_paths, caption=""):
+    """Альбом из нескольких картинок одним постом; подпись — у первой.
+    Возвращает id сообщений альбома по порядку."""
+    media = [dict({"type": "photo", "media": f"attach://p{i}"},
+                  **({"caption": caption, "parse_mode": "HTML"} if i == 0 else {}))
+             for i in range(len(image_paths))]
+    files = {f"p{i}": open(p, "rb") for i, p in enumerate(image_paths)}
+    try:
+        resp = _tg_post(f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMediaGroup",
+                        data={"chat_id": TG_CHAT_ID, "message_thread_id": topic_id,
+                              "media": json.dumps(media), "disable_notification": True},
+                        files=files, timeout=60)
+    finally:
+        for f in files.values():
+            f.close()
+    result = resp.json()
+    if not result.get("ok"):
+        raise RuntimeError(f"Telegram sendMediaGroup error: {result}")
+    return [m["message_id"] for m in result["result"]]
+
+
+def _table_images(entry, state_key):
+    """Картинки уже нарисованной таблицы (одна или по группам) — или []."""
+    ids = entry.get("message_ids") or [entry["message_id"]]
+    if len(ids) > 1:
+        paths = [IMAGES_DIR / f"{state_key}_{i + 1}.png" for i in range(len(ids))]
+    else:
+        paths = [IMAGES_DIR / f"{state_key}.png"]
+    return paths if all(p.exists() for p in paths) else []
+
+
+def _republish_table(entry, state_key, age, title):
+    """Публикует таблицу заново (альбом или фото), закрепляет, убирает старые сообщения."""
+    paths = _table_images(entry, state_key)
+    if not paths:
+        return False
+    old_ids = entry.get("message_ids") or [entry["message_id"]]
+    ids = send_album(TOPIC_IDS[age], paths, title) if len(paths) > 1 \
+        else [send_photo(TOPIC_IDS[age], paths[0], caption=title)]
+    pin_message(ids[0])
+    entry["message_id"], entry["message_ids"] = ids[0], ids
+    for old in old_ids:
+        _retire_old_table(old)
+    return True
+
+
 def process_tournament(age, tournament_type, tournament_slug, year_id, state, dry_run):
     topic_id = TOPIC_IDS[age]
 
@@ -672,60 +718,66 @@ def process_tournament(age, tournament_type, tournament_slug, year_id, state, dr
     if tournament_slug == PERVENSTVO_SLUG:
         by_group = fhspb_pervenstvo_standings(age, by_group)
     # Группы без команд (матчей ещё не было) не показываем; если пусто
-    # всё — таблицу не публикуем, иначе вышла бы картинка с одним заголовком.
+    # всё — таблицу не публикуем.
     by_group = {g: s for g, s in by_group.items() if s}
     if not by_group:
         return
 
     title = format_standings_title(age, tournament_type)
     state_key = f"{tournament_slug}_{year_id}"
+    fingerprint = json.dumps({"data": by_group, "overrides": NAME_DISPLAY_OVERRIDES,
+                              "local_logos": LOCAL_LOGO_OVERRIDES}, ensure_ascii=False, sort_keys=True)
 
-    # "Отпечаток" данных — используем для сравнения "изменилось/нет" без
-    # необходимости сравнивать сами картинки побайтово. Добавляем словарь
-    # исправленных названий (NAME_DISPLAY_OVERRIDES) в отпечаток тоже —
-    # иначе изменение ТОЛЬКО написания названий (без изменения реальных
-    # данных с сайта) не считалось бы "изменением" и пост не обновился бы.
-    fingerprint_data = {
-        "data": by_group,
-        "overrides": NAME_DISPLAY_OVERRIDES,
-        "local_logos": LOCAL_LOGO_OVERRIDES,
-    }
-    fingerprint = json.dumps(fingerprint_data, ensure_ascii=False, sort_keys=True)
-
+    groups = list(by_group)
+    album = len(groups) > 1           # несколько групп — альбом, картинка на группу
     existing = state.get(state_key)
+    old_ids = (existing.get("message_ids") or [existing["message_id"]]) if existing else []
+    same_shape = existing is not None and len(old_ids) == (len(groups) if album else 1)
 
-    if existing is None:
-        print(f"\n[НОВАЯ ТАБЛИЦА] {age} г.р. {tournament_type}")
-        if not dry_run:
-            image_path = IMAGES_DIR / f"{state_key}.png"
-            draw_standings_image(title, by_group, image_path)
-            message_id = send_photo(topic_id, image_path, caption=title)
-            pin_message(message_id)
-            state[state_key] = {"message_id": message_id, "fingerprint": fingerprint}
+    if same_shape and existing.get("fingerprint") == fingerprint:
+        return
+    label = ("НОВАЯ ТАБЛИЦА" if existing is None else
+             "ОБНОВЛЕНИЕ ТАБЛИЦЫ" if same_shape else "ТАБЛИЦА ПО ГРУППАМ")
+    word = "группы" if 2 <= len(groups) <= 4 else "групп"
+    print(f"\n[{label}] {age} г.р. {tournament_type}" + (f" ({len(groups)} {word})" if album else ""))
+    if dry_run:
+        print("  (dry-run — не отправлено)")
+        return
+
+    if album:
+        paths = []
+        for i, g in enumerate(groups):
+            path = IMAGES_DIR / f"{state_key}_{i + 1}.png"
+            draw_standings_image(title, {g: by_group[g]}, path)
+            paths.append(path)
+    else:
+        paths = [IMAGES_DIR / f"{state_key}.png"]
+        draw_standings_image(title, by_group, paths[0])
+
+    if same_shape:
+        try:
+            for i, (mid, path) in enumerate(zip(old_ids, paths)):
+                edit_photo(mid, path, caption=title if i == 0 else "")
+            existing["fingerprint"] = fingerprint
             save_state(state)
             time.sleep(1)
-        else:
-            print("  (dry-run — не отправлено)")
-    else:
-        if existing.get("fingerprint") != fingerprint:
-            print(f"\n[ОБНОВЛЕНИЕ ТАБЛИЦЫ] {age} г.р. {tournament_type}")
-            if not dry_run:
-                image_path = IMAGES_DIR / f"{state_key}.png"
-                draw_standings_image(title, by_group, image_path)
-                try:
-                    edit_photo(existing["message_id"], image_path, caption=title)
-                except RuntimeError as e:
-                    if "message to edit not found" not in str(e):
-                        raise
-                    # Сообщение таблицы удалено вручную — публикуем заново.
-                    print(f"[INFO] Сообщение {existing['message_id']} удалено — публикую таблицу заново")
-                    existing["message_id"] = send_photo(topic_id, image_path, caption=title)
-                    pin_message(existing["message_id"])
-                existing["fingerprint"] = fingerprint
-                save_state(state)
-                time.sleep(1)
-            else:
-                print("  (dry-run — не отредактировано)")
+            return
+        except RuntimeError as e:
+            if "message to edit not found" not in str(e):
+                raise
+            print("[INFO] Сообщение таблицы удалено — публикую заново")
+
+    # Новая таблица, смена вида (одна картинка <-> альбом) или удалённое сообщение
+    ids = send_album(topic_id, paths, title) if album else [send_photo(topic_id, paths[0], caption=title)]
+    pin_message(ids[0])
+    entry = {"message_id": ids[0], "message_ids": ids, "fingerprint": fingerprint}
+    if existing and existing.get("reposted_on"):
+        entry["reposted_on"] = existing["reposted_on"]
+    state[state_key] = entry
+    save_state(state)
+    for old in old_ids:
+        _retire_old_table(old)
+    time.sleep(1)
 
 
 def main():
@@ -823,8 +875,7 @@ def _maybe_daily_repost(age, tournament_type, tournament_slug, year_id, state, d
         entry["reposted_on"] = today     # таблицу и так только что опубликовали
         save_state(state)
         return
-    image_path = IMAGES_DIR / f"{state_key}.png"
-    if not image_path.exists():
+    if not _table_images(entry, state_key):
         return
     scheduled, finished = _day_progress(age, tournament_slug, today)
     if not scheduled or not finished:
@@ -836,13 +887,9 @@ def _maybe_daily_repost(age, tournament_type, tournament_slug, year_id, state, d
     if dry_run:
         print("  (dry-run — не отправлено)")
         return
-    old_id = entry["message_id"]
-    new_id = send_photo(TOPIC_IDS[age], image_path, caption=format_standings_title(age, tournament_type))
-    pin_message(new_id)
-    entry["message_id"] = new_id
-    entry["reposted_on"] = today
-    save_state(state)
-    _retire_old_table(old_id)
+    if _republish_table(entry, state_key, age, format_standings_title(age, tournament_type)):
+        entry["reposted_on"] = today
+        save_state(state)
 
 
 _process_tournament_single_post = process_tournament

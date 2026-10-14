@@ -81,20 +81,16 @@ def main():
             log(f"{age} {ttype}: не удалось обновить ({e})")
         key = f"{slug}_{year_id}"
         entry = state.get(key)
-        image = st.IMAGES_DIR / f"{key}.png"
-        if not entry or not image.exists():
+        if not entry or not st._table_images(entry, key):
             log(f"{age} {ttype}: таблицы пока нет — пропускаю")
             continue
         try:
-            old_id = entry["message_id"]
-            new_id = st.send_photo(st.TOPIC_IDS[age], image, caption=st.format_standings_title(age, ttype))
-            st.pin_message(new_id)
-            entry["message_id"] = new_id
-            entry["reposted_on"] = today
-            st.save_state(state)
-            st._retire_old_table(old_id)
-            done += 1
-            log(f"{age} {ttype}: опубликована заново (сообщение {new_id}), старая {old_id} убрана")
+            old_ids = entry.get("message_ids") or [entry["message_id"]]
+            if st._republish_table(entry, key, age, st.format_standings_title(age, ttype)):
+                entry["reposted_on"] = today
+                st.save_state(state)
+                done += 1
+                log(f"{age} {ttype}: опубликована заново ({len(entry['message_ids'])} карт.), старые {old_ids} убраны")
             time.sleep(2)
         except Exception as e:
             log(f"{age} {ttype}: ошибка публикации ({e})")
