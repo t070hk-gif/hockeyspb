@@ -1413,8 +1413,9 @@ def _results_image(state_key, banner_path, day_matches, spb_lookup, title, known
             score = (sm or {}).get("score")
         g1, g2 = _goals_for_banner(m, spb_lookup)
         extra = _protocol_extras(m, spb_lookup, score)
-        if not g1 and not g2:
-            g1, g2 = extra.pop("goals1", []), extra.pop("goals2", [])
+        p1, p2 = extra.get("goals1", []), extra.get("goals2", [])
+        if (p1 or p2) and len(p1) + len(p2) >= len(g1) + len(g2):
+            g1, g2 = p1, p2    # в протоколе есть передачи
         extra.pop("goals1", None), extra.pop("goals2", None)
         rows.append({"time": m.get("time"), "team1": m["team1"], "team2": m["team2"], "score": score,
                      "goals1": g1, "goals2": g2, **extra})

@@ -26,6 +26,7 @@ _TEAM = re.compile(r'protocol-player-card__name-team">\s*([^<]+?)\s*<')
 _LABEL = re.compile(r'protocol-player-card__label[^>]*>(.*?)</(?:span|div)>', re.S)
 _SIDEBAR = re.compile(r'protocol-player-card__sidebar[^>]*>(.*?)</div>', re.S)
 _PENALTY_MIN = re.compile(r"(\d+)\s*[’'′]")
+_ASSIST_RE = re.compile(r"\d+\.\s*([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z\-]+)")
 
 
 def _strip(fragment):
@@ -94,7 +95,12 @@ def summarize(html):
     for g in goals:
         for side, card in ((1, g["left"]), (2, g["right"])):
             if card and g["minute"] is not None:
-                result["goals"][side].append((g["minute"], f"{_surname(card['name'])} {int(g['minute']) + 1}'"))
+                # Передачи — в подписи карточки автора: "87. Воробьев Александр"
+                assists = _ASSIST_RE.findall(card.get("label", ""))
+                text = f"{_surname(card['name'])} {int(g['minute']) + 1}'"
+                if assists:
+                    text += f" ({', '.join(assists)})"
+                result["goals"][side].append((g["minute"], text))
     for side in (1, 2):
         result["goals"][side] = [s for _, s in sorted(result["goals"][side])]
 
