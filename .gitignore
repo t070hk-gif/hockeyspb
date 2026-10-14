@@ -22,3 +22,4 @@ banners_old/
 *.bak*
 __pycache__/
 .DS_Store
+health_state.json
