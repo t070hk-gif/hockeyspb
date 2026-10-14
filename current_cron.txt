@@ -1,0 +1,2 @@
+*/20 * * * * cd /Users/ildarsakiranov/vk-bot && /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 post_schedule.py --live >> /Users/ildarsakiranov/vk-bot/schedule_log.txt 2>&1
+*/20 * * * * cd /Users/ildarsakiranov/vk-bot && /Library/Frameworks/Python.framework/Versions/3.14/bin/python3 post_standings.py --live >> /Users/ildarsakiranov/vk-bot/standings_log.txt 2>&1

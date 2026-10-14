@@ -1,41 +1,24 @@
-# Файлы состояния — меняются каждые пару минут, не нужны в истории git
-posted_days.json
-state.json
-video_index.json
-official_matches.json
-spb_match_details.json
-kubok_rossii_teams.json
-post_schedule.lock
-
-# Токены и секреты
 vk_tokens.json
-
-# Логи
-*.log
-*_log.txt
-schedule_log.txt
-vkbot_log.txt
-vkbot_error.txt
-
-# Python
-__pycache__/
-*.pyc
-
-# macOS
-.DS_Store
-banners/.DS_Store
-
-# Отладочные/тестовые файлы прошлых сессий
-debug_kubok_rossii.html
-test_2013.html
-tournament_6571.html
-year_2013_fixed.html
-current_cron.txt
-check_swallowed_0509.py
-migrate_video_index.py
-recover_swallowed_videos.py
-revalidate_video_index.py
-test_groups.py
-
-# Состояние (таблицы) — аналогично postred_days.json и т.п.
+*token*.json
+state.json
+posted_days.json
 standings_state.json
+video_index.json
+official_*.json
+*_cache.json
+admin_*.json
+team_logos.json
+live_*.json
+*.lock
+*_log.txt
+*.log
+*.log.*
+logs_archive/
+results_images/
+standings_images/
+banners_v2/
+banners_old/
+*.tmp
+*.bak*
+__pycache__/
+.DS_Store
