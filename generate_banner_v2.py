@@ -101,7 +101,8 @@ def make_banner(year, group=None, tournament="ПЕРВЕНСТВО", out_path=No
     size = round(190 * K)
     try:
         logo = Image.open(LOGO_PATH).convert("RGBA")
-        logo.thumbnail((size, size), Image.LANCZOS)
+        scale = size / max(logo.size)
+        logo = logo.resize((round(logo.width * scale), round(logo.height * scale)), Image.LANCZOS)
     except Exception:
         logo = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         ld = ImageDraw.Draw(logo)
