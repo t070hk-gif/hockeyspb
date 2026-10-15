@@ -29,8 +29,8 @@ import requests
 
 BASE = Path(__file__).parent
 STATE_FILE = BASE / "health_state.json"
-TG_BOT_TOKEN = "7972710769:AAGA1FQ1_Sh7K2EtTvCvzji-SJPxZ-kp_54"
-ADMIN_ID = 1158946041
+from config import TG_BOT_TOKEN  # секреты — в config.json
+from config import ADMIN_ID
 VK_LAUNCHD = "com.hockeyjunior.vkbot"
 
 SCHEDULE_STALE_MIN = 30

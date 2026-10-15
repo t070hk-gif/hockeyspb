@@ -30,8 +30,8 @@ from pathlib import Path
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
-TG_BOT_TOKEN = "7972710769:AAGA1FQ1_Sh7K2EtTvCvzji-SJPxZ-kp_54"
-TG_CHAT_ID = -1002723611949
+from config import TG_BOT_TOKEN  # секреты — в config.json
+from config import TG_CHAT_ID
 
 STATE_FILE = Path(__file__).parent / "standings_state.json"
 IMAGES_DIR = Path(__file__).parent / "standings_images"

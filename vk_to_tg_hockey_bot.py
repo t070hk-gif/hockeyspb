@@ -79,9 +79,9 @@ VK_GROUP_IDS = [
 # не распознались или не совпали с официальным матчем.
 ROSSII_ONLY_GROUP_IDS = {25510790, 165020927, 133823152}
 
-TG_BOT_TOKEN = "7972710769:AAGA1FQ1_Sh7K2EtTvCvzji-SJPxZ-kp_54"
-TG_CHANNEL_ID = -1002723611949  # ВСЕССЫЛКИ.СПБ (общий чат, без привязки к теме)  # или -100xxxxxxxxxx
-ADMIN_TELEGRAM_USER_ID = 1158946041  # личка — куда слать аварийные уведомления (например, об истёкшем VK-токене)
+from config import TG_BOT_TOKEN  # секреты — в config.json
+from config import TG_CHAT_ID as TG_CHANNEL_ID  # группа ВСЕССЫЛКИ.СПБ
+from config import ADMIN_ID as ADMIN_TELEGRAM_USER_ID
 ADMIN_STATE_FILE = Path(__file__).parent / "admin_conversation.json"
 
 
