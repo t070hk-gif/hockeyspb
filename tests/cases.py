@@ -224,3 +224,23 @@ def test_health_summary():
         ensure_ascii=False), encoding="utf-8")
     text = hc.day_summary(d)
     assert "Матчей: 2, с видео: 1" in text and "северсталь — ска стрельна" in text, text
+
+
+def test_announce_without_date():
+    """Анонс без даты, выложенный за 4 дня, и «Форвард» вместо «Динамо Форвард»."""
+    import team_matcher as tm
+    from datetime import datetime as dt
+    fx = {"16.10.2026": [{"date": "16.10.2026", "team1": "гудгол", "team2": "красная машина юниор", "age": "10",
+                          "key": "16.10.2026::гудгол|красная машина юниор", "time": "11:00"}],
+          "18.10.2026": [{"date": "18.10.2026", "team1": "гудгол", "team2": "красная машина юниор", "age": "10",
+                          "key": "18.10.2026::гудгол|красная машина юниор", "time": "16:00"},
+                         {"date": "18.10.2026", "team1": "альфа", "team2": "динамо форвард", "age": "11",
+                          "key": "18.10.2026::альфа|динамо форвард", "time": "9:00"}]}
+    title = "Гудгол 10 - Красная Машина Юниор 10, 16:00,"
+    dates = tm.build_date_candidates(title, None, dt(2026, 10, 14, 20, 18).timestamp())
+    assert "18.10.2026" in dates, dates
+    r, why = tm.match_title(title, dates, fixtures=fx, alias_groups=tm.load_alias_groups())
+    assert r and r["date"] == "18.10.2026", (r, why)          # 16:00 в заголовке — матч 18.10, а не 16.10
+    r, why = tm.match_title("18.10 09:00 АЛЬФА 11 - ФОРВАРД 11", ["18.10.2026"], fixtures=fx,
+                            alias_groups=tm.load_alias_groups())
+    assert r and r["team2"] == "динамо форвард", (r, why)

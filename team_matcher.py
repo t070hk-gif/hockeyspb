@@ -46,6 +46,7 @@ DEFAULT_ALIAS_GROUPS = [
     ["московская академия хоккея", "мах"],
     ["красная машина юниор", "красная машина", "кмю"],
     ["красная машина юниор 2", "красная машина 2", "кмю 2"],
+    ["динамо форвард", "форвард"],
 ]
 
 REVIEW_WORDS = ("обзор", "хайлайт", "highlight", "лучшие моменты",
@@ -311,6 +312,9 @@ def extract_title_date(title: str, ref_year: int):
         return None
 
 
+ANNOUNCE_AHEAD_DAYS = 7      # анонс без даты: матч может быть до недели после загрузки
+
+
 def build_date_candidates(title: str, live_start_ts=None, upload_ts=None, window: int = 3) -> list:
     """Если дата есть в заголовке — только она. Иначе — дата начала
     трансляции (или загрузки) и соседние дни: +1, -1, +2, -2 ..."""
@@ -328,11 +332,23 @@ def build_date_candidates(title: str, live_start_ts=None, upload_ts=None, window
     if not base_ts:
         return []
     base = datetime.fromtimestamp(base_ts)
-    result = [base.strftime("%d.%m.%Y")]
+    days = [0]
     for k in range(1, window + 1):
-        result.append((base + timedelta(days=k)).strftime("%d.%m.%Y"))
-        result.append((base - timedelta(days=k)).strftime("%d.%m.%Y"))
-    return result
+        days += [k, -k]
+    if not live_start_ts:
+        # Только дата загрузки (анонс без даты и без времени начала):
+        # клубы выкладывают анонсы за несколько дней — смотрим неделю вперёд.
+        days += list(range(window + 1, ANNOUNCE_AHEAD_DAYS + 1))
+    return [(base + timedelta(days=d)).strftime("%d.%m.%Y") for d in days]
+
+
+_TITLE_TIME_RE = re.compile(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)")
+
+
+def _hm(text):
+    """'9:00' / '09:00' -> (9, 0); None, если времени нет."""
+    m = re.match(r"\s*(\d{1,2}):(\d{2})", text or "")
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 def _minutes_from(fx: dict, start_dt) -> float:
@@ -374,6 +390,8 @@ def match_title(title: str, date_candidates: list, fixtures: dict = None,
     distinct_ages = set(ages)
     title_age = distinct_ages.pop() if len(distinct_ages) == 1 else None
 
+    title_time = _hm(_TITLE_TIME_RE.search(title or "").group(0)) if _TITLE_TIME_RE.search(title or "") else None
+
     def collect(allow_squad_omit):
         found = []
         for idx, date in enumerate(date_candidates):
@@ -391,6 +409,8 @@ def match_title(title: str, date_candidates: list, fixtures: dict = None,
                 if size is None:
                     continue
                 score = size + (5 if (title_age and fx_age == title_age) else 0) - 0.01 * idx
+                if title_time and _hm(fx.get("time")) == title_time:
+                    score += 0.5      # время из заголовка совпало с временем матча
                 found.append((score, fx))
         return found
 

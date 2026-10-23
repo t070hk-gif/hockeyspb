@@ -274,12 +274,18 @@ def vk_videos_still_exist(access_token: str, video_refs: list) -> set:
         return set()
 
     videos_param = ",".join(f"{owner_id}_{vid}" for owner_id, vid in video_refs)
-    resp = requests.get(
-        "https://api.vk.com/method/video.get",
-        params={"videos": videos_param, "access_token": access_token, "v": VK_API_VERSION},
-        timeout=15,
-    )
-    data = resp.json()
+    for attempt in range(3):
+        time.sleep(0.4)                     # VK: не больше 3 запросов в секунду
+        resp = requests.get(
+            "https://api.vk.com/method/video.get",
+            params={"videos": videos_param, "access_token": access_token, "v": VK_API_VERSION},
+            timeout=15,
+        )
+        data = resp.json()
+        if data.get("error", {}).get("error_code") == 6:      # Too many requests per second
+            time.sleep(1.5 * (attempt + 1))
+            continue
+        break
     if "error" in data:
         print(f"[VK API error - проверка удалённых видео] {data['error']}")
         # При ошибке API лучше НЕ считать видео удалёнными (безопаснее
