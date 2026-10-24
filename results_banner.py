@@ -146,7 +146,7 @@ def render(banner_path, matches, date_label, group, title, out_path):
     measure = ImageDraw.Draw(Image.new("RGB", (1, 1)))
     gfont = _font(False, 19)
     cx = width // 2
-    plate_w, plate_h = 300 * S, 100 * S
+    plate_w, plate_h = 300 * S, 108 * S
     col_w = cx - plate_w // 2 - 60 * S
     rows = []
     for m in sorted(matches, key=lambda x: x.get("time") or ""):
@@ -159,7 +159,8 @@ def render(banner_path, matches, date_label, group, title, out_path):
             g1.append(("goalie", m.get("goalie1") or ""))
             g2.append(("goalie", m.get("goalie2") or ""))
         extra = max(len(g1), len(g2))
-        rows.append((m, g1, g2, (136 + (extra * 28 + 24 if extra else 0)) * S))
+        room = extra * 28 + 24 if extra else (40 if m.get("penalty") else 0)   # место под штраф без голов
+        rows.append((m, g1, g2, (144 + room) * S))
 
     top = 76 * S
     total_h = header.height + top + sum(r[3] + 14 * S for r in rows) + 56 * S
@@ -187,20 +188,21 @@ def render(banner_path, matches, date_label, group, title, out_path):
         sc = split_score(m.get("score"))
         live = m.get("live")
         text = f"{sc[0]}:{sc[1]}" if sc else "-:-"
-        cell = 11 * S
-        sx = cx - _led_width(text, cell) / 2
         under = (live and sc) or (sc and sc[2])
-        sy = mid - 3.5 * cell - (13 * S if under else 0)
+        # С подписью под счётом цифры чуть меньше, чтобы всё помещалось в табло
+        cell = (9 if under else 11) * S
+        sx = cx - _led_width(text, cell) / 2
+        sy = py0 + 12 * S if under else mid - 3.5 * cell
         if live and sc:
             _led(gdraw, text, sx, sy, cell, (255, 40, 40, 170))
             lit.append((text, sx, sy, cell, RED))
-            d.text((cx, py0 + plate_h - 9 * S), "LIVE" if live is True else f"LIVE · {live}",
+            d.text((cx, py0 + plate_h - 14 * S), "LIVE" if live is True else f"LIVE · {live}",
                    font=_font(True, 15), fill=(255, 90, 90), anchor="mm")
         elif sc:
             _led(gdraw, text, sx, sy, cell, (255, 160, 0, 170))
             lit.append((text, sx, sy, cell, AMBER))
             if sc[2]:
-                d.text((cx, py0 + plate_h - 9 * S), SUFFIX_TEXT.get(sc[2], sc[2]),
+                d.text((cx, py0 + plate_h - 14 * S), SUFFIX_TEXT.get(sc[2], sc[2]),
                        font=_font(True, 15), fill=AMBER, anchor="mm")
         else:
             lit.append((text, sx, sy, cell, AMBER_DIM))
