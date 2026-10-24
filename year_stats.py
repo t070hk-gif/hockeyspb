@@ -115,21 +115,51 @@ def cur_groups(session, slug, year_id):
     return groups or [("Все", None)]
 
 
+DETAILS_VERSION = 2
+_ASSIST_FULL = re.compile(r"\d+\.\s*([А-ЯЁA-Z][А-ЯЁа-яёA-Za-z\-]+(?:\s+[А-ЯЁA-Z][а-яёa-z\-]+)?)")
+
+
+def parse_details(html):
+    """Счёт по периодам, штрафные минуты, авторы голов, передачи, вратари из страницы матча."""
+    periods = [f"{a}:{b}" for a, b in spb_fhr_client.PERIOD_SCORE_RE.findall(html)]
+    try:
+        summ = spb_protocol.summarize(html)
+        events = spb_protocol.parse_events(html)
+    except Exception:
+        summ, events = {}, []
+    pen = summ.get("penalty") or (0, 0)
+    scorers, assists = [], []
+    for e in events:
+        if e["kind"] in ("", "goal") and re.fullmatch(r"\d+", e.get("label") or ""):
+            for card in (e["left"], e["right"]):
+                if card and card.get("name"):
+                    scorers.append([card["name"], card.get("team", "")])
+                    for a in _ASSIST_FULL.findall(card.get("label", "")):
+                        assists.append([a.strip(), card.get("team", "")])
+    full = {}
+    for e in events:
+        if e["kind"] == "keepers" or (e.get("label") or "").lower().startswith("вратар"):
+            for card in (e["left"], e["right"]):
+                if card and card.get("name"):
+                    full[card["name"].split()[0]] = card["name"]
+    keepers = {}
+    for side in (1, 2):
+        g = (summ.get("goalies") or {}).get(side) or []
+        keepers[str(side)] = [[full.get(n, n), int(conceded)] for n, conceded in g]
+    return {"v": DETAILS_VERSION, "periods": periods, "pim": int(pen[0]) + int(pen[1]),
+            "scorers": scorers, "assists": assists, "keepers": keepers,
+            "teams": {str(k): v for k, v in (summ.get("teams") or {}).items()}}
+
+
 def game_details(session, game_id, cache):
-    """Счёт по периодам и штрафные минуты матча (сыгранные запоминаются)."""
-    if game_id in cache:
+    """Подробности матча (сыгранные запоминаются; старые записи без имён перечитываются)."""
+    if cache.get(game_id, {}).get("v") == DETAILS_VERSION:
         return cache[game_id]
     html = session.get(f"https://spb.fhr.ru/games/{game_id}/", timeout=25,
                        headers={"Referer": "https://spb.fhr.ru/tournaments/"}).text
-    periods = [f"{a}:{b}" for a, b in spb_fhr_client.PERIOD_SCORE_RE.findall(html)]
-    try:
-        pen = spb_protocol.summarize(html).get("penalty") or (0, 0)
-    except Exception:
-        pen = (0, 0)
-    info = {"periods": periods, "pim": int(pen[0]) + int(pen[1])}
-    cache[game_id] = info
+    cache[game_id] = parse_details(html)
     time.sleep(0.3)
-    return info
+    return cache[game_id]
 
 
 # ----------------------------------------------------------------- подсчёт
@@ -142,6 +172,7 @@ def collect(date_to):
     date_from = datetime(YEAR, 1, 1)
     stats = {}                                  # возраст -> столбец -> показатели
     tour_of = {}
+    games_of = {}                               # возраст -> список матчей для рекордов
     jobs = [("prev", t) for t in PREV_SEASON] + [("cur", t) for t in CUR_SEASON]
     for season, (tid, slug, tour, years) in jobs:
         for age, year_id in years.items():
@@ -168,11 +199,13 @@ def collect(date_to):
                     col["ot"] += suffix == "ОТ"
                     col["so"] += suffix == "ПБ"
                     col["shutouts"] += (min(a, b) == 0 and suffix != "ПБ")
+                    games_of.setdefault(age, []).append({"date": d, "time": g.get("time") or "", "team1": g["team1"],
+                                                         "team2": g["team2"], "a": a, "b": b, "suffix": suffix, "info": info})
                     n += 1
                 tour_of[age] = tour if season == "cur" or age not in tour_of else tour_of[age]
                 print(f"   {age} {season} {label}: {n} матчей")
                 CACHE_FILE.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-    return stats, tour_of
+    return stats, tour_of, games_of
 
 
 # ----------------------------------------------------------------- картинка
@@ -338,6 +371,110 @@ def render(age, columns, tour, period_text, out):
     return out
 
 
+# ----------------------------------------------------------------- рекорды года
+def _team(raw):
+    try:
+        return ps._spb_display_name(raw, "").strip()
+    except Exception:
+        return raw
+
+
+def records(games):
+    """Бомбардиры, ассистенты, вратари «на ноль», крупнейшая победа, самая результативная игра, серия побед."""
+    from collections import Counter
+    scorers = Counter((n, _team(t)) for g in games for n, t in g["info"].get("scorers", []))
+    assists = Counter((n, _team(t)) for g in games for n, t in g["info"].get("assists", []))
+    zeros = Counter()
+    for g in games:
+        for side in ("1", "2"):
+            ks = g["info"].get("keepers", {}).get(side) or []
+            if len(ks) == 1 and ks[0][1] == 0:
+                team = g["team1"] if side == "1" else g["team2"]          # сторона 1 — первая команда календаря
+                zeros[(ks[0][0], _team(team))] += 1
+    goals = lambda g: g["a"] + g["b"] - (1 if g["suffix"] == "ПБ" else 0)
+    biggest = max(games, key=lambda g: (abs(g["a"] - g["b"]), goals(g)), default=None)
+    richest = max(games, key=lambda g: (goals(g), -abs(g["a"] - g["b"])), default=None)
+    streak, run = (None, 0), {}
+    for g in sorted(games, key=lambda g: (g["date"], g["time"])):
+        for team, mine, theirs in ((g["team1"], g["a"], g["b"]), (g["team2"], g["b"], g["a"])):
+            key = ps.normalize_team_name(team)
+            run[key] = run.get(key, 0) + 1 if mine > theirs else 0
+            if run[key] > streak[1]:
+                streak = (_team(team), run[key])
+    top = lambda cnt: [(n, t, k) for (n, t), k in sorted(cnt.items(), key=lambda x: (-x[1], x[0][0]))[:3] if k > 0]
+    game_text = lambda g: f"{_team(g['team1'])} — {_team(g['team2'])}  {g['a']}:{g['b']}{(' ' + g['suffix']) if g['suffix'] else ''}  ·  {g['date']:%d.%m}"
+    return {"scorers": top(scorers), "assists": top(assists), "zeros": top(zeros),
+            "biggest": game_text(biggest) if biggest else "", "richest": game_text(richest) if richest else "",
+            "streak": f"{streak[0]} — {streak[1]} {_wins_word(streak[1])} подряд" if streak[0] else ""}
+
+
+def _wins_word(n):
+    if n % 10 == 1 and n % 100 != 11:
+        return "победа"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return "победы"
+    return "побед"
+
+
+def render_records(age, rec, tour, period_text, out):
+    W = 1280
+    hdr = festive_header(age, tour, W)
+    sections = [("ЛУЧШИЕ БОМБАРДИРЫ", rec["scorers"], "гол."), ("ЛУЧШИЕ ПО ПЕРЕДАЧАМ", rec["assists"], "пер."),
+                ("ВРАТАРИ «НА НОЛЬ»", rec["zeros"], "матч.")]
+    sections = [s for s in sections if s[1]]
+    facts = [(name, val) for name, val in (("Крупнейшая победа", rec["biggest"]), ("Самая результативная игра", rec["richest"]),
+                                            ("Лучшая серия побед", rec["streak"])) if val]
+    rh, sh = 78 * S, 58 * S
+    H = hdr.height + 84 * S + sum(sh + rh * len(s[1]) for s in sections) + (sh + rh * len(facts) if facts else 0) + 60 * S
+    img = Image.new("RGBA", (W * S, H), BG + (255,))
+    img.paste(hdr, (0, 0))
+    d = ImageDraw.Draw(img)
+    y = hdr.height
+    d.text((36 * S, y + 40 * S), f"РЕКОРДЫ {YEAR}", font=_f(34), fill=AMBER, anchor="lm")
+    tw = d.textlength(f"РЕКОРДЫ {YEAR}", font=_f(34))
+    _dots(d, SNOWFLAKE, 36 * S + tw + 18 * S, y + 26 * S, 4 * S, lambda r, c: (210, 230, 255))
+    d.text((W * S - 36 * S, y + 40 * S), period_text, font=_f(22, False), fill=MUTED, anchor="rm")
+    y += 84 * S
+    glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    lit = []
+    for title, rows, unit in sections:
+        d.text((36 * S, y + sh // 2), title, font=_f(22), fill=MUTED, anchor="lm")
+        y += sh
+        for i, (name, team, k) in enumerate(rows):
+            d.rounded_rectangle([20 * S, y + 4 * S, W * S - 20 * S, y + rh - 4 * S], radius=12 * S,
+                                fill=PANEL if i % 2 == 0 else PANEL2, outline=AMBER if i == 0 else EDGE, width=(3 if i == 0 else 1) * S)
+            mid = y + rh // 2
+            _led(d, str(i + 1), 58 * S, mid - 3.5 * 4 * S, 4 * S, AMBER)
+            d.text((110 * S, mid), name.upper(), font=_f(26), fill=TEXT, anchor="lm")
+            nw = d.textlength(name.upper(), font=_f(26))
+            d.text((110 * S + nw + 22 * S, mid), team, font=_f(22, False), fill=MUTED, anchor="lm")
+            val, cell = str(k), 6 * S
+            vx = (W - 140) * S - (len(val) * cell * 6.2 - cell * 1.2) / 2
+            _led(gd, val, vx, mid - 3.5 * cell, cell, (255, 160, 0, 170))
+            lit.append((val, vx, mid - 3.5 * cell, cell))
+            d.text(((W - 60) * S, mid), unit, font=_f(18, False), fill=MUTED, anchor="mm")
+            y += rh
+    if facts:
+        d.text((36 * S, y + sh // 2), "РЕКОРДЫ МАТЧЕЙ", font=_f(22), fill=MUTED, anchor="lm")
+        y += sh
+        for i, (name, val) in enumerate(facts):
+            d.rounded_rectangle([20 * S, y + 4 * S, W * S - 20 * S, y + rh - 4 * S], radius=12 * S,
+                                fill=PANEL if i % 2 == 0 else PANEL2, outline=EDGE, width=S)
+            mid = y + rh // 2
+            d.text((44 * S, mid), name, font=_f(22, False), fill=MUTED, anchor="lm")
+            d.text(((W - 44) * S, mid), val.upper(), font=_f(24), fill=TEXT, anchor="rm")
+            y += rh
+    d.text((36 * S, H - 30 * S), "Первенство СПб и Кубок Федерации · данные протоколов spb.fhr.ru",
+           font=_f(18, False), fill=MUTED, anchor="lm")
+    img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(8 * S)))
+    d = ImageDraw.Draw(img)
+    for val, vx, vy, cell in lit:
+        _led(d, val, vx, vy, cell, AMBER)
+    img.convert("RGB").resize((W, H // S), Image.LANCZOS).save(out)
+    return out
+
+
 def send_albums(paths, caption):
     for start in range(0, len(paths), 10):
         chunk = paths[start:start + 10]
@@ -369,15 +506,19 @@ def main():
         date_to = datetime.strptime(sys.argv[sys.argv.index("--to") + 1], "%d.%m.%Y")
     date_to = date_to.replace(hour=23, minute=59)
     print(f"Итоги {YEAR}: 01.01–{date_to:%d.%m.%Y}. Собираю данные spb.fhr.ru…")
-    stats, tour_of = collect(date_to)
+    stats, tour_of, games_of = collect(date_to)
     OUT_DIR.mkdir(exist_ok=True)
     period = f"01.01 – {date_to:%d.%m.%Y}"
     paths = [render(age, stats[age], tour_of.get(age), period, OUT_DIR / f"{age}.png")
              for age in sorted(stats)]
     print(f"Картинок: {len(paths)} в {OUT_DIR}")
+    rec_paths = [render_records(age, records(games_of[age]), tour_of.get(age), period, OUT_DIR / f"{age}_records.png")
+                 for age in sorted(games_of)]
+    print(f"Картинок рекордов: {len(rec_paths)}")
     if "--preview" in sys.argv:
         return
     send_albums(paths, f"📊 <b>Итоги {YEAR} по годам рождения</b>\nПервенство СПб и Кубок Федерации, {period}")
+    send_albums(rec_paths, f"🏆 <b>Рекорды {YEAR} по годам рождения</b>\nБомбардиры, передачи, вратари «на ноль» и рекорды матчей, {period}")
     print("Отправлено в личку")
 
 

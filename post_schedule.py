@@ -1460,6 +1460,72 @@ def edit_media(message_id, image_path, caption, topic_id=None):
         raise RuntimeError(f"Telegram editMessageMedia error: {data}")
 
 
+# ===================== Праздничные ролики =====================
+_FESTIVE_DAY = False          # текущий пост — праздничный: вместо картинки ролик
+
+
+def _festive_mp4(image_path):
+    """Ролик из готовой картинки: мигающая гирлянда и падающий снег по шапке."""
+    import festive
+    from PIL import Image as _Img
+    src = Path(str(image_path))
+    RESULTS_IMAGES_DIR.mkdir(exist_ok=True)
+    out = RESULTS_IMAGES_DIR / f"{src.stem}_ny.mp4"
+    festive.animate(_Img.open(src), str(out))
+    return out
+
+
+def _send_animation(topic_id, mp4, caption):
+    with open(mp4, "rb") as fh:
+        data = requests.post(f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendAnimation",
+                             data={"chat_id": TG_CHAT_ID, "message_thread_id": topic_id, "caption": caption,
+                                   "parse_mode": "HTML", "disable_notification": True},
+                             files={"animation": fh}, timeout=60).json()
+    if not data.get("ok"):
+        raise RuntimeError(f"Telegram sendAnimation error: {data}")
+    message_id = data["result"]["message_id"]
+    try:
+        requests.post(f"https://api.telegram.org/bot{TG_BOT_TOKEN}/editMessageReplyMarkup",
+                      data={"chat_id": TG_CHAT_ID, "message_id": message_id,
+                            "reply_markup": _build_share_buttons(topic_id, message_id)}, timeout=30)
+    except Exception:
+        pass
+    return message_id
+
+
+_send_photo_still = send_photo
+_edit_media_still = edit_media
+
+
+def send_photo(topic_id, banner_path, caption):
+    if _FESTIVE_DAY:
+        try:
+            return _send_animation(topic_id, _festive_mp4(banner_path), caption)
+        except Exception as e:
+            print(f"[WARN] Праздничный ролик не собрался ({e}) — отправляю картинку")
+    return _send_photo_still(topic_id, banner_path, caption)
+
+
+def edit_media(message_id, image_path, caption, topic_id=None):
+    if _FESTIVE_DAY:
+        try:
+            mp4 = _festive_mp4(image_path)
+            media = json.dumps({"type": "animation", "media": "attach://anim", "caption": caption,
+                                "parse_mode": "HTML"}, ensure_ascii=False)
+            payload = {"chat_id": TG_CHAT_ID, "message_id": message_id, "media": media}
+            if topic_id is not None:
+                payload["reply_markup"] = _build_share_buttons(topic_id, message_id)
+            with open(mp4, "rb") as fh:
+                data = requests.post(f"https://api.telegram.org/bot{TG_BOT_TOKEN}/editMessageMedia",
+                                     data=payload, files={"anim": fh}, timeout=60).json()
+            if data.get("ok") or "message is not modified" in str(data.get("description", "")):
+                return
+            raise RuntimeError(data)
+        except Exception as e:
+            print(f"[WARN] Праздничный ролик не обновился ({e}) — обновляю картинкой")
+    return _edit_media_still(message_id, image_path, caption, topic_id)
+
+
 def _update_day_post(existing, state, state_key, topic_id, banner_path, caption,
                      day_matches, spb_lookup, title, label, dry_run):
     global _results_edits_done
@@ -1650,6 +1716,8 @@ def process_tournament(age: str, group: str, tournament_type: str, tournament_id
 
     banner_path = get_banner_path(age, group, tournament_type)
     base_banner_path = banner_path
+    global _FESTIVE_DAY
+    _FESTIVE_DAY = False
     if not banner_path.exists():
         print(f"[WARN] Баннер не найден: {banner_path} — пропускаю {age}/{group}/{tournament_type}")
         return
@@ -1663,9 +1731,12 @@ def process_tournament(age: str, group: str, tournament_type: str, tournament_id
         state_key = f"{tournament_id}_{date_label}"
         try:
             import festive
-            banner_path = festive.season_banner(base_banner_path, date_label)   # праздники — с гирляндой
+            # Праздничный день: ролик (гирлянда мигает, снег падает) из обычного баннера;
+            # если ролики собрать нельзя — праздничная картинка
+            _FESTIVE_DAY = festive.in_season(festive.date_of(date_label)) and festive.can_animate()
+            banner_path = base_banner_path if _FESTIVE_DAY else festive.season_banner(base_banner_path, date_label)
         except Exception:
-            banner_path = base_banner_path
+            _FESTIVE_DAY, banner_path = False, base_banner_path
         if _from_spb and state_key in state:
             continue    # запасной источник: опубликованные посты не трогаем, ждём fhspb.ru
 
@@ -1732,6 +1803,7 @@ def process_tournament(age: str, group: str, tournament_type: str, tournament_id
             _update_day_post(existing, state, state_key, topic_id, banner_path, caption,
                              day_matches, spb_lookup, _results_title(age, group, tournament_type),
                              f"{age} г.р. {group or ''} {tournament_type} — {date_label}", dry_run)
+    _FESTIVE_DAY = False
 
 
 KUBOK_ROSSII_BANNER = BANNERS_DIR / "2011_kubokrossii.png"

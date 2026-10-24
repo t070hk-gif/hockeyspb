@@ -290,3 +290,29 @@ def test_festive():
     ny = festive.season_banner(src, "Вс 27.12.2026")
     assert ny != src and Image.open(ny).size == Image.open(src).size
     assert festive.season_banner(src, "Сб 24.10.2026") == src
+
+
+def test_festive_animation():
+    """Праздничный день: пост уходит роликом (sendAnimation), обычный — картинкой."""
+    with quiet():
+        import post_schedule as ps
+    calls = []
+
+    class R:
+        def __init__(self, method):
+            self.method = method
+
+        def json(self):
+            return {"ok": True, "result": {"message_id": 77}}
+    ps.requests.post = lambda url, data=None, files=None, timeout=None: (calls.append(url.rsplit("/", 1)[-1]), R(url))[1]
+    ps._festive_mp4 = lambda path: Path(str(path))           # без сборки ролика
+    banner = ps.BANNERS_DIR / "2011_groupa_champ.png"
+    ps._FESTIVE_DAY = True
+    with quiet():
+        ps.send_photo(5, banner, "подпись")
+    assert calls[0] == "sendAnimation", calls
+    calls.clear()
+    ps._FESTIVE_DAY = False
+    with quiet():
+        ps.send_photo(5, banner, "подпись")
+    assert calls[0] == "sendPhoto", calls
