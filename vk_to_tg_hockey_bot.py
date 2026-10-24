@@ -1481,9 +1481,60 @@ def _match_video_to_fixture(title: str, upload_ts=None, live_start=None, owner_i
     title = _apply_group_hints(title, owner_id)
     dates = team_matcher.build_date_candidates(title, live_start, upload_ts)
     start_dt = datetime.fromtimestamp(live_start) if live_start else None
-    return team_matcher.match_title(title, dates, fixtures=_get_fixtures(),
-                                    alias_groups=team_matcher.load_alias_groups(),
-                                    start_dt=start_dt)
+    fx, why = team_matcher.match_title(title, dates, fixtures=_get_fixtures(),
+                                       alias_groups=team_matcher.load_alias_groups(),
+                                       start_dt=start_dt)
+    if not fx and live_start and owner_id:
+        alt = _match_by_group_team(owner_id, live_start)
+        if alt:
+            return alt, "по клубу группы и времени трансляции"
+    return fx, why
+
+
+_GROUP_TEAM_CACHE = {}
+
+
+def _group_team(owner_id):
+    """Клуб группы VK — по истории привязанных видео (≥3 видео, клуб в ≥60% из них)."""
+    if owner_id in _GROUP_TEAM_CACHE:
+        return _GROUP_TEAM_CACHE[owner_id]
+    from collections import Counter
+    counts, total, seen = Counter(), 0, set()
+    for key, v in load_video_index().items():
+        url = (v or {}).get("video_url", "") if isinstance(v, dict) else ""
+        if f"video{owner_id}_" not in url or url in seen:
+            continue
+        parts = key.split("::")
+        if len(parts) < 2 or "|" not in parts[1]:
+            continue
+        seen.add(url)
+        total += 1
+        for t in parts[1].split("|"):
+            counts[t] += 1
+    team = None
+    if total >= 3:
+        name, n = counts.most_common(1)[0]
+        team = name if n >= 0.6 * total else None
+    _GROUP_TEAM_CACHE[owner_id] = team
+    return team
+
+
+def _match_by_group_team(owner_id, live_start):
+    """Матч клуба группы, начинающийся в пределах 30 минут от начала трансляции (если он один)."""
+    team = _group_team(owner_id)
+    if not team:
+        return None
+    start = datetime.fromtimestamp(live_start)
+    found = []
+    for f in _get_fixtures().get(start.strftime("%d.%m.%Y"), []):
+        if team not in (f.get("team1"), f.get("team2")):
+            continue
+        hm = re.match(r"(\d{1,2}):(\d{2})", f.get("time") or "")
+        if hm:
+            begin = start.replace(hour=int(hm.group(1)), minute=int(hm.group(2)), second=0)
+            if abs((begin - start).total_seconds()) <= 30 * 60:
+                found.append(f)
+    return found[0] if len(found) == 1 else None
 
 
 def register_official_video(fx: dict, video_url: str, title: str) -> list:
@@ -1618,6 +1669,7 @@ def _send_unresolved_digest(state: dict) -> None:
 
 
 SWEEP_MAX_AGE_DAYS = 10
+SWEEP_RETRY_MIN = 30          # видео без матча перепроверяется раз в 30 минут
 
 
 def _registered_video_ids() -> set:
@@ -1650,16 +1702,19 @@ def _sweep_unplaced(state: dict, group_id: int, unique_videos: dict, seen_ids: s
     queue = state.setdefault("_unresolved_videos", {})
     sent = state.get("_sent_videos", {})
     pending = state.get("_pending_friendly_matches", {})
-    swept = state.setdefault("_swept_videos", [])
-    swept_set = set(swept)
+    swept = state.setdefault("_swept_videos", {})
+    if isinstance(swept, list):                       # прежний формат — «проверено когда-то давно»
+        swept = state["_swept_videos"] = {k: 0 for k in swept}
     registered = None
     now = time.time()
     found = queued = 0
 
     for vid, v in unique_videos.items():
         full_id = f'{v["owner_id"]}_{vid}'
-        if vid not in seen_ids or full_id in queue or full_id in swept_set:
+        if vid not in seen_ids or full_id in queue:
             continue
+        if now - swept.get(full_id, 0) < SWEEP_RETRY_MIN * 60:
+            continue                                  # проверяли недавно — ждём
         if str(vid) in sent or str(vid) in pending:
             continue
         ts = v.get("live_start_time") or v.get("date") or 0
@@ -1670,8 +1725,8 @@ def _sweep_unplaced(state: dict, group_id: int, unique_videos: dict, seen_ids: s
         if full_id in registered:
             continue
 
-        swept.append(full_id)
-        swept_set.add(full_id)
+        first_try = full_id not in swept
+        swept[full_id] = now
         title = v.get("title", "")
         fx, reason = _match_video_to_fixture(title, v.get("date"), v.get("live_start_time"),
                                              owner_id=v["owner_id"])
@@ -1681,13 +1736,14 @@ def _sweep_unplaced(state: dict, group_id: int, unique_videos: dict, seen_ids: s
                 found += 1
                 print(f"[OK] Ранее пропущенное видео {vid} — официальный матч {fx['date']} "
                       f"{fx['team1']} — {fx['team2']} (возр. {fx.get('age') or '?'}): {title}")
-        else:
+        elif first_try:                               # в очередь — только при первой проверке
             before = len(queue)
             _queue_unresolved(state, v, title, v.get("description", ""), reason)
             queued += len(queue) - before
 
     if len(swept) > 5000:
-        del swept[:-5000]
+        for k in sorted(swept, key=swept.get)[:-5000]:
+            del swept[k]
     if found or queued:
         print(f"[INFO] Группа {group_id}: ранее пропущенных видео — привязано {found}, в очередь {queued}")
         save_state(state)
