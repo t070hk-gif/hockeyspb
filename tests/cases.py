@@ -244,3 +244,18 @@ def test_announce_without_date():
     r, why = tm.match_title("18.10 09:00 АЛЬФА 11 - ФОРВАРД 11", ["18.10.2026"], fixtures=fx,
                             alias_groups=tm.load_alias_groups())
     assert r and r["team2"] == "динамо форвард", (r, why)
+
+
+def test_results_banner_live():
+    """Табло: идущий матч (красный счёт LIVE) и итог рисуются без ошибок."""
+    import results_banner as rb
+    rb._logo = lambda name, size: None
+    rows = [{"time": "11:00", "team1": "СКА 11", "team2": "Динамо 11", "score": "5 : 0", "penalty": (2, 6)},
+            {"time": "14:30", "team1": "СКА Серебряные Львы 11", "team2": "Динамо Юниор 11", "score": "2 : 1",
+             "live": True, "goals1": ["Гаврилов 34'"]},
+            {"time": "19:00", "team1": "Северсталь 11", "team2": "СКА Стрельна 11", "score": None}]
+    out = HERE / "banner_live.png"
+    with quiet():
+        rb.render(None, rows, "Сб 03.10.2026", "A", "Первенство СПб 2011 г.р.", out)
+    from PIL import Image
+    assert Image.open(out).size[0] == 1280

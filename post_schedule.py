@@ -1417,13 +1417,14 @@ def _results_image(state_key, banner_path, day_matches, spb_lookup, title, known
         if (p1 or p2) and len(p1) + len(p2) >= len(g1) + len(g2):
             g1, g2 = p1, p2    # в протоколе есть передачи
         extra.pop("goals1", None), extra.pop("goals2", None)
+        live = bool(score) and not m.get("score") and is_match_live(m["date"], m.get("time") or "")
         rows.append({"time": m.get("time"), "team1": m["team1"], "team2": m["team2"], "score": score,
-                     "goals1": g1, "goals2": g2, **extra})
+                     "goals1": g1, "goals2": g2, "live": live or None, **extra})
     if not any(results_banner.split_score(r["score"]) for r in rows):
         return None, None
     fp = json.dumps(sorted((r["time"] or "", r["team1"], r["team2"], r["score"] or "",
                             r["goals1"], r["goals2"], r.get("goalie1", ""), r.get("goalie2", ""),
-                            str(r.get("penalty"))) for r in rows), ensure_ascii=False)
+                            str(r.get("penalty")), bool(r.get("live"))) for r in rows), ensure_ascii=False)
     RESULTS_IMAGES_DIR.mkdir(exist_ok=True)
     out = RESULTS_IMAGES_DIR / (re.sub(r"[^0-9A-Za-z_.-]", "_", state_key) + ".png")
     if fp == known_fp and out.exists():
