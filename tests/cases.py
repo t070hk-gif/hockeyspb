@@ -277,3 +277,16 @@ def test_standings_tablo():
                                 {"А": [row(i + 1, f"Команда {i}", 20 - i) for i in range(n)]}, out)
         sizes.append(Image.open(out).size)
     assert sizes == [(1280, 1440), (1280, 1440)], sizes
+
+
+def test_festive():
+    """Новогодняя тема: праздничные даты и наряженный баннер того же размера."""
+    import festive
+    from datetime import date
+    from PIL import Image
+    assert festive.in_season(date(2026, 12, 15)) and festive.in_season(date(2027, 1, 10))
+    assert not festive.in_season(date(2027, 1, 11)) and not festive.in_season(date(2026, 10, 24))
+    src = HERE / "banners" / "2011_groupa_champ.png"
+    ny = festive.season_banner(src, "Вс 27.12.2026")
+    assert ny != src and Image.open(ny).size == Image.open(src).size
+    assert festive.season_banner(src, "Сб 24.10.2026") == src

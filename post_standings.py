@@ -347,6 +347,14 @@ def _get_logo_image(team_name, logo_url):
     return logo
 
 
+def _festive_now():
+    try:
+        import festive
+        return festive.in_season()
+    except Exception:
+        return False
+
+
 def draw_standings_image(title, by_group, out_path):
     """Турнирная таблица в стиле «Табло». Размер всегда 1280×1440."""
     import os
@@ -382,6 +390,11 @@ def draw_standings_image(title, by_group, out_path):
     candidates = ([f"{year}_cup.png"] if ("ФЕДЕРАЦ" in title.upper() or year in ("2016", "2017", "2018")) else
                   [f"{year}_group{letter}_champ.png", f"{year}_champ.png", f"{year}_groupa_champ.png"])
     banner = next((banners / n for n in candidates if (banners / n).exists() and n), None)
+    try:
+        import festive
+        banner = festive.season_banner(banner)            # в праздники — с гирляндой
+    except Exception:
+        pass
 
     img = Image.new("RGBA", (W * S, H * S), BG + (255,))
     if banner:
@@ -757,7 +770,8 @@ def process_tournament(age, tournament_type, tournament_slug, year_id, state, dr
     title = format_standings_title(age, tournament_type)
     state_key = f"{tournament_slug}_{year_id}"
     fingerprint = json.dumps({"data": by_group, "overrides": NAME_DISPLAY_OVERRIDES,
-                              "local_logos": LOCAL_LOGO_OVERRIDES}, ensure_ascii=False, sort_keys=True)
+                              "local_logos": LOCAL_LOGO_OVERRIDES, "festive": _festive_now()},
+                             ensure_ascii=False, sort_keys=True)
 
     groups = list(by_group)
     album = len(groups) > 1           # несколько групп — альбом, картинка на группу

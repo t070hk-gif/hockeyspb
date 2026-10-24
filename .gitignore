@@ -28,3 +28,5 @@ spb_match_details.json
 vkbot_error.txt
 *.bak_cleanup
 tests/_tmp/
+year_stats/
+banners_ny/

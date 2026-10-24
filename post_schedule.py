@@ -1649,6 +1649,7 @@ def process_tournament(age: str, group: str, tournament_type: str, tournament_id
             print(f"[WARN] spb.fhr.ru недоступен для {age} г.р. {tournament_type}: {e}")
 
     banner_path = get_banner_path(age, group, tournament_type)
+    base_banner_path = banner_path
     if not banner_path.exists():
         print(f"[WARN] Баннер не найден: {banner_path} — пропускаю {age}/{group}/{tournament_type}")
         return
@@ -1660,6 +1661,11 @@ def process_tournament(age: str, group: str, tournament_type: str, tournament_id
 
     for date_label, day_matches in by_date.items():
         state_key = f"{tournament_id}_{date_label}"
+        try:
+            import festive
+            banner_path = festive.season_banner(base_banner_path, date_label)   # праздники — с гирляндой
+        except Exception:
+            banner_path = base_banner_path
         if _from_spb and state_key in state:
             continue    # запасной источник: опубликованные посты не трогаем, ждём fhspb.ru
 
