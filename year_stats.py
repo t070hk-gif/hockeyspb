@@ -11,6 +11,8 @@
     python3 year_stats.py --to 24.10.2026    — по указанную дату
     python3 year_stats.py --preview          — только нарисовать картинки в year_stats/, не отправлять
     python3 year_stats.py --monthly          — для cron: работает только в последний день месяца
+    python3 year_stats.py --stages           — какие группы и этапы (в т. ч. финальные) попадают в итоги
+    python3 year_stats.py --publish-test     — показать в личке посты 31 декабря (итоги по темам) и поздравление
 """
 import base64
 import html as H
@@ -32,6 +34,7 @@ sys.path.insert(0, str(BASE))
 import spb_fhr_client
 import spb_protocol
 import generate_banner_v3 as tb
+import festive
 from config import TG_BOT_TOKEN, ADMIN_ID
 with redirect_stdout(io.StringIO()):
     import post_schedule as ps
@@ -85,7 +88,12 @@ def groups_from_html(page, year_id):
 
 
 def prev_groups(session, slug, year_id):
-    """Группы/этапы года в сезоне 2025/26: календарь турнира переключается на год фоновым запросом."""
+    """Группы и этапы года в сезоне 2025/26 (включая финальные: «За 1-4 место» и т. п.).
+    Сначала — страница года рождения, запасной путь — календарь турнира."""
+    page = session.get(f"https://spb.fhr.ru/tournaments/{slug}-year-{year_id}/", timeout=25).text
+    groups = groups_from_html(page, year_id)
+    if groups:
+        return groups
     page = session.get(f"https://spb.fhr.ru/tournaments/{slug}/calendar/", timeout=25).text
     groups = groups_from_html(page, year_id)
     if groups:
@@ -498,7 +506,142 @@ def send_albums(paths, caption):
             raise RuntimeError(r)
 
 
+# ----------------------------------------------------------------- поздравление в полночь
+def totals(stats):
+    t = {"games": 0, "goals": 0, "pim": 0}
+    for columns in stats.values():
+        for col in columns.values():
+            for k in t:
+                t[k] += col[k]
+    return t
+
+
+def _num(n):
+    return f"{n:,}".replace(",", " ")
+
+
+def greeting_video(tot, out_mp4, fps=12):
+    """Ролик-поздравление: отсчёт 00:10…00:01 на табло, затем «2027» с салютом."""
+    import math
+    import random
+    import imageio.v2 as imageio
+    import numpy
+    W, Hh = 1280, 720
+    nxt = str(YEAR + 1)
+    sky = Image.new("RGB", (W, Hh))
+    sd = ImageDraw.Draw(sky)
+    for y in range(Hh):
+        t = y / Hh
+        sd.line([(0, y), (W, y)], fill=(int(8 + 12 * t), int(12 + 18 * t), int(28 + 30 * t)))
+    rnd = random.Random(31)
+    # вспышки салюта — вокруг табло (x 190–1090, y 150–470), не поверх цифр
+    spots = [(95, 250, 85), (1185, 260, 85), (110, 560, 80), (1170, 560, 80), (330, 82, 60), (950, 80, 60), (640, 640, 0)]
+    bursts = [(x, y, rnd.choice(BULBS_GREET), rnd.randrange(0, 24), r) for x, y, r in spots if r]
+    frames = [("count", s, f) for s in range(10, 0, -1) for f in range(6)] + [("year", 0, f) for f in range(48)]
+
+    def led_text(d, text, cx, y, cell, color):
+        w = sum(cell * (6.2 if ch != ":" else 4.4) for ch in text) - cell * 1.2
+        x = cx - w / 2
+        for ch in text:
+            for r, row in enumerate(tb.GLYPHS[ch]):
+                for c, bit in enumerate(row):
+                    if bit == "1":
+                        d.ellipse([x + c * cell, y + r * cell, x + c * cell + cell * 0.84, y + r * cell + cell * 0.84], fill=color)
+            x += cell * (6.2 if ch != ":" else 4.4)
+
+    with imageio.get_writer(out_mp4, fps=fps, codec="libx264", quality=8, macro_block_size=1, pixelformat="yuv420p") as wr:
+        for i, (kind, sec, f) in enumerate(frames):
+            img = sky.copy().convert("RGBA")
+            img.alpha_composite(festive.falling_snow(W, Hh, i % 48, 48, seed=5, count=260))
+            img.alpha_composite(festive.garland_layer(W, 60, W / 1200, i % 48, 48))
+            d = ImageDraw.Draw(img)
+            d.rounded_rectangle([190, 150, 1090, 470], radius=26, fill=(20, 24, 34), outline=(52, 60, 78), width=4)
+            glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            gd = ImageDraw.Draw(glow)
+            if kind == "count":
+                d.text((W / 2, 196), "ДО НОВОГО ГОДА", font=_f(17), fill=(150, 160, 180), anchor="mm")
+                text, color = f"00:{sec:02d}", (255, 196, 40)
+            else:
+                text, color = nxt, (255, 210, 60)
+                for bx, by, col, delay, radius in bursts:              # салют
+                    t = (f - delay % 24) / 24
+                    if 0 <= t <= 1:
+                        for a in range(0, 360, 18):
+                            for k in (0.4, 0.7, 1.0):
+                                rr = radius * t * k
+                                x, y = bx + math.cos(math.radians(a)) * rr, by + math.sin(math.radians(a)) * rr
+                                s, alpha = 9 * (1 - t * 0.5), int(255 * (1 - t))
+                                gd.ellipse([x - s, y - s, x + s, y + s], fill=col + (alpha,))
+                                d.ellipse([x - s / 2, y - s / 2, x + s / 2, y + s / 2], fill=col + (alpha,))
+            led_text(gd, text, W / 2, 228, 24, color + (255,))
+            img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(14)))
+            d = ImageDraw.Draw(img)
+            led_text(d, text, W / 2, 228, 24, color)
+            if kind == "year":
+                d.rounded_rectangle([W / 2 - 300, 500, W / 2 + 300, 572], radius=18, fill=(233, 30, 85))
+                d.text((W / 2, 536), "С НОВЫМ ГОДОМ!", font=_f(22), fill=(255, 255, 255), anchor="mm")
+            d.text((W / 2, 622), f"В {YEAR} году: {_num(tot['games'])} матчей · {_num(tot['goals'])} шайб",
+                   font=_f(13, False), fill=(200, 210, 230), anchor="mm")
+            d.text((W / 2, 668), "ВСЕССЫЛКИ.СПБ · детский хоккей Петербурга", font=_f(11, False), fill=(130, 140, 160), anchor="mm")
+            wr.append_data(numpy.asarray(img.convert("RGB")))
+    return out_mp4
+
+
+BULBS_GREET = [(255, 80, 80), (80, 220, 120), (255, 200, 60), (90, 170, 255), (255, 120, 220), (255, 255, 255)]
+
+
+def publish_preview(stats, games_of, tour_of, period, to_admin=True):
+    """Пункт 4: по каждому году — альбом «итоги + рекорды» с праздничной подписью.
+    to_admin=True — в личку (проверка); False — в темы годов рождения (31 декабря)."""
+    try:
+        from post_standings import TOPIC_IDS
+    except Exception:
+        TOPIC_IDS = {}
+    sent = 0
+    for age in sorted(stats):
+        a = OUT_DIR / f"{age}.png"
+        b = OUT_DIR / f"{age}_records.png"
+        if not (a.exists() and b.exists()):
+            continue
+        caption = (f"🎄 <b>Итоги {YEAR} · {age} г.р.</b>\n"
+                   f"Матчи, шайбы, штрафы, лучшие бомбардиры, ассистенты и вратари года.\n"
+                   f"С наступающим Новым годом! ❄️")
+        topic = TOPIC_IDS.get(age)
+        if not to_admin and not topic:
+            continue
+        media = [{"type": "photo", "media": "attach://a", "caption": caption, "parse_mode": "HTML"},
+                 {"type": "photo", "media": "attach://b"}]
+        data = {"chat_id": ADMIN_ID if to_admin else TG_CHAT_ID, "media": json.dumps(media, ensure_ascii=False)}
+        if not to_admin:
+            data["message_thread_id"] = topic
+        with open(a, "rb") as fa, open(b, "rb") as fb:
+            r = requests.post(f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMediaGroup", data=data,
+                              files={"a": fa, "b": fb}, timeout=120).json()
+        sent += bool(r.get("ok"))
+        time.sleep(2)
+    return sent
+
+
+def show_stages():
+    """Какие группы и этапы найдены по каждому году и сколько в них сыгранных матчей 2026 года."""
+    session = spb_fhr_client.create_session()
+    for season, table in (("2025/26", PREV_SEASON), ("2026/27", CUR_SEASON)):
+        print(f"\n=== сезон {season}")
+        for tid, slug, tour, years in table:
+            for age, year_id in years.items():
+                groups = prev_groups(session, slug, year_id) if season == "2025/26" else cur_groups(session, slug, year_id)
+                parts = []
+                for label, gid in groups:
+                    rows = ps._spb_calendar_rows(session, tid, slug, year_id, gid)
+                    n = sum(1 for g in rows if g.get("score") and g["date"].endswith(str(YEAR)))
+                    parts.append(f"{label}: {n}")
+                print(f"  {age} {tour[:10]:10} " + (" | ".join(parts) if parts else "этапы не найдены"))
+
+
 def main():
+    if "--stages" in sys.argv:
+        show_stages()
+        return
     if "--monthly" in sys.argv and (datetime.now() + timedelta(days=1)).day != 1:
         return                                   # не последний день месяца
     date_to = datetime.now()
@@ -516,6 +659,15 @@ def main():
                  for age in sorted(games_of)]
     print(f"Картинок рекордов: {len(rec_paths)}")
     if "--preview" in sys.argv:
+        return
+    if "--publish-test" in sys.argv:                 # пункты 4 и 6 — проверка в личке
+        n = publish_preview(stats, games_of, tour_of, period, to_admin=True)
+        mp4 = greeting_video(totals(stats), str(OUT_DIR / "greeting.mp4"))
+        with open(mp4, "rb") as fh:
+            requests.post(f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendAnimation", files={"animation": fh},
+                          data={"chat_id": ADMIN_ID, "caption": f"🎆 С Новым {YEAR + 1} годом! (так поздравление выйдет в полночь)"},
+                          timeout=120)
+        print(f"В личку: {n} альбомов «итоги + рекорды» по годам и поздравление")
         return
     send_albums(paths, f"📊 <b>Итоги {YEAR} по годам рождения</b>\nПервенство СПб и Кубок Федерации, {period}")
     send_albums(rec_paths, f"🏆 <b>Рекорды {YEAR} по годам рождения</b>\nБомбардиры, передачи, вратари «на ноль» и рекорды матчей, {period}")
