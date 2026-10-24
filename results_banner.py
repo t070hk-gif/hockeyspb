@@ -84,7 +84,8 @@ def _logo(raw_name, size):
     img = None
     try:
         import post_standings as st
-        local = getattr(st, "LOCAL_LOGO_OVERRIDES", {}).get(display)
+        overrides = getattr(st, "LOCAL_LOGO_OVERRIDES", {})
+        local = overrides.get(display) or overrides.get(re.sub(r"\s*[-–]?\s*\d+$", "", display).strip())
         if local:
             img = Image.open(st.LOCAL_LOGOS_DIR / local).convert("RGBA")
         else:

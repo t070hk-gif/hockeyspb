@@ -322,6 +322,9 @@ def _get_logo_image(team_name, logo_url):
     его, иначе пробуем скачать с spb.fhr.ru. При любой ошибке (сеть,
     неверный формат) просто возвращает None — тогда строка рисуется без
     логотипа, не ломая всю таблицу."""
+    base_name = re.sub(r"\s*[-–]?\s*\d+$", "", team_name or "").strip()
+    if team_name not in LOCAL_LOGO_OVERRIDES and base_name in LOCAL_LOGO_OVERRIDES:
+        team_name = base_name                 # «Шайба 2» — логотип «Шайбы»
     cache_key = LOCAL_LOGO_OVERRIDES.get(team_name) or logo_url
     if cache_key is None:
         return None
@@ -647,13 +650,22 @@ LOGO_MAP_FILE = Path(__file__).parent / "team_logos.json"
 _logo_map_cache = None
 
 
+class _LogoMap(dict):
+    """Справочник логотипов: у состава «… 2» без своего логотипа — логотип основной команды."""
+    def get(self, key, default=None):
+        v = dict.get(self, key)
+        if v is None and key and re.sub(r"\d+$", "", key) != key:
+            v = dict.get(self, re.sub(r"\d+$", "", key))
+        return v if v is not None else default
+
+
 def _load_logo_map():
     global _logo_map_cache
     if _logo_map_cache is None:
         try:
-            _logo_map_cache = json.loads(LOGO_MAP_FILE.read_text(encoding="utf-8"))
+            _logo_map_cache = _LogoMap(json.loads(LOGO_MAP_FILE.read_text(encoding="utf-8")))
         except Exception:
-            _logo_map_cache = {}
+            _logo_map_cache = _LogoMap()
     return _logo_map_cache
 
 
