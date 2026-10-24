@@ -125,6 +125,16 @@ def _wrap(draw, items, font, max_w):
     return lines + ([cur] if cur else [])
 
 
+def _fit_font(draw, text, size, max_w, bold=False):
+    """Шрифт строки, уменьшенный так, чтобы текст точно поместился в max_w."""
+    while size > 11:
+        f = _font(bold, size)
+        if draw.textlength(text, font=f) <= max_w:
+            return f
+        size -= 1
+    return _font(bold, size)
+
+
 def _fit(draw, text, size, max_w):
     while size > 14:
         f = _font(True, size)
@@ -156,8 +166,14 @@ def render(banner_path, matches, date_label, group, title, out_path):
             n = max(len(g1), len(g2))
             g1 += [""] * (n - len(g1))
             g2 += [""] * (n - len(g2))
-            g1.append(("goalie", m.get("goalie1") or ""))
-            g2.append(("goalie", m.get("goalie2") or ""))
+            label_w = measure.textlength("ВРАТАРЬ  ", font=_font(True, 15))
+            k1 = _wrap(measure, [x.strip() for x in (m.get("goalie1") or "").split(", ") if x.strip()], gfont, col_w - label_w)
+            k2 = _wrap(measure, [x.strip() for x in (m.get("goalie2") or "").split(", ") if x.strip()], gfont, col_w - label_w)
+            k = max(len(k1), len(k2), 1)
+            k1 += [""] * (k - len(k1))
+            k2 += [""] * (k - len(k2))
+            g1 += [("goalie", line, i == 0 and bool(m.get("goalie1"))) for i, line in enumerate(k1)]
+            g2 += [("goalie", line, i == 0 and bool(m.get("goalie2"))) for i, line in enumerate(k2)]
         extra = max(len(g1), len(g2))
         room = extra * 28 + 24 if extra else (40 if m.get("penalty") else 0)   # место под штраф без голов
         rows.append((m, g1, g2, (144 + room) * S))
@@ -174,8 +190,10 @@ def render(banner_path, matches, date_label, group, title, out_path):
     parts = (date_label or "").split()
     day = f"{DAY_NAMES.get(parts[0], parts[0])} {parts[-1][:5]}" if len(parts) >= 2 else date_label
     y = header.height
-    d.text((36 * S, y + top // 2), f"РЕЗУЛЬТАТЫ  ·  {day}", font=_font(True, 32), fill=AMBER, anchor="lm")
-    d.text((width - 36 * S, y + top // 2), title, font=_font(False, 22), fill=MUTED, anchor="rm")
+    left = f"РЕЗУЛЬТАТЫ  ·  {day}"
+    d.text((36 * S, y + top // 2), left, font=_font(True, 32), fill=AMBER, anchor="lm")
+    room = width - 72 * S - d.textlength(left, font=_font(True, 32)) - 40 * S
+    d.text((width - 36 * S, y + top // 2), title, font=_fit_font(d, title, 22, room), fill=MUTED, anchor="rm")
     y += top
 
     for m, g1, g2, rh in rows:
@@ -236,20 +254,26 @@ def render(banner_path, matches, date_label, group, title, out_path):
         for k, line in enumerate(g1):
             yy = gy + k * 28 * S
             if isinstance(line, tuple):
-                if line[1]:
-                    tw = d.textlength(line[1], font=gfont)
-                    d.text((px0 - 22 * S - tw - label_w, yy + 3 * S), "ВРАТАРЬ  ", font=label_font, fill=AMBER)
-                    d.text((px0 - 22 * S - tw, yy), line[1], font=gfont, fill=TEXT)
+                _, txt, first = line
+                if txt:
+                    f = _fit_font(d, txt, 19, col_w - label_w, bold=False)
+                    tw = d.textlength(txt, font=f)
+                    if first:
+                        d.text((px0 - 22 * S - tw - label_w, yy + 3 * S), "ВРАТАРЬ  ", font=label_font, fill=AMBER)
+                    d.text((px0 - 22 * S - tw, yy), txt, font=f, fill=TEXT)
             elif line:
-                d.text((px0 - 22 * S, yy), line, font=gfont, fill=MUTED, anchor="ra")
+                d.text((px0 - 22 * S, yy), line, font=_fit_font(d, line, 19, col_w, bold=False), fill=MUTED, anchor="ra")
         for k, line in enumerate(g2):
             yy = gy + k * 28 * S
             if isinstance(line, tuple):
-                if line[1]:
-                    d.text((rx, yy + 3 * S), "ВРАТАРЬ  ", font=label_font, fill=AMBER)
-                    d.text((rx + label_w, yy), line[1], font=gfont, fill=TEXT)
+                _, txt, first = line
+                if txt:
+                    f = _fit_font(d, txt, 19, col_w - label_w, bold=False)
+                    if first:
+                        d.text((rx, yy + 3 * S), "ВРАТАРЬ  ", font=label_font, fill=AMBER)
+                    d.text((rx + label_w, yy), txt, font=f, fill=TEXT)
             elif line:
-                d.text((rx, yy), line, font=gfont, fill=MUTED)
+                d.text((rx, yy), line, font=_fit_font(d, line, 19, col_w, bold=False), fill=MUTED)
         y += rh + 14 * S
 
     d.text((width - 36 * S, total_h - 28 * S), "fhspb.ru  ·  spb.fhr.ru", font=_font(False, 18), fill=DIM, anchor="rm")
