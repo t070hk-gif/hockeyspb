@@ -30,3 +30,6 @@ vkbot_error.txt
 tests/_tmp/
 year_stats/
 banners_ny/
+backup/role
+.primary_ok
+.standby_active

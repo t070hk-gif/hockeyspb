@@ -67,59 +67,89 @@ OPTIONAL = {"ot", "so"}                     # строки без единого
 
 # ----------------------------------------------------------------- spb.fhr.ru
 def _decode(link):
-    qs = urllib.parse.parse_qs(urllib.parse.urlparse(H.unescape(link)).query)
-    raw = qs.get("params", [""])[0]
-    try:
-        dec = base64.b64decode(raw + "=" * (-len(raw) % 4)).decode(errors="ignore")
-    except Exception:
+    """Параметры кнопки фильтра: {'TOURNAMENT_ID': …, 'GROUP_ID': …, 'YEAR_ID': …}.
+    Устойчиво к &amp;amp;, кодированию адреса и вариантам base64."""
+    # Не html.unescape: он принимает «&para» в «&params=» за символ «¶» и портит ссылку
+    text = link
+    while "&amp;" in text:
+        text = text.replace("&amp;", "&")
+    m = re.search(r"params=([^&\"'\s]+)", text)
+    if not m:
         return {}
-    return dict(re.findall(r's:\d+:"([A-Z_]+)";s:\d+:"(\d*)"', dec))
+    raw0 = m.group(1)
+    for raw in (urllib.parse.unquote(raw0), raw0, urllib.parse.unquote_plus(raw0)):
+        for decoder in (base64.b64decode, base64.urlsafe_b64decode):
+            try:
+                dec = decoder(raw + "=" * (-len(raw) % 4)).decode(errors="ignore")
+            except Exception:
+                continue
+            found = dict(re.findall(r's:\d+:"([A-Z_]+)";s:\d+:"(\d*)"', dec))
+            if found.get("GROUP_ID"):
+                return found
+    return {}
 
 
-def groups_from_html(page, year_id):
-    """[(название, GROUP_ID)] из кнопок фильтра календаря для года year_id."""
+def groups_from_html(page, year_id=None):
+    """[(подпись, GROUP_ID)] из кнопок фильтра: группы и этапы («За 1-4 место», «Переходный турнир»…).
+    Подпись — первый текст после кнопки (до следующей кнопки), в какие бы теги он ни был обёрнут."""
     out = []
-    for link, label in re.findall(r'data-ajax-link="([^"]+)"[^>]*>\s*([^<]{1,40}?)\s*<', page):
-        ids = _decode(link)
-        if ids.get("GROUP_ID") and ids.get("YEAR_ID", year_id) == year_id:
-            if ids["GROUP_ID"] not in [g for _, g in out]:
-                out.append((label.strip(), ids["GROUP_ID"]))
+    for m in re.finditer(r'data-ajax-link="([^"]+)"', page):
+        params = _decode(m.group(1))
+        gid = params.get("GROUP_ID")
+        if not gid or gid in [g for _, g in out]:
+            continue
+        if year_id and params.get("YEAR_ID") and params["YEAR_ID"] != year_id:
+            continue                                     # кнопка другого года рождения
+        seg = page[m.end(): m.end() + 800]
+        nxt = seg.find("data-ajax-link")
+        seg = seg[:nxt] if nxt > 0 else seg
+        texts = [re.sub(r"\s+", " ", t).strip() for t in re.findall(r">([^<]*)<", seg)]
+        label = next((t for t in texts if t and len(t) <= 40), "")
+        out.append((label or f"Группа {len(out) + 1}", gid))
     return out
 
 
+def _bot_groups(session, slug, year_id):
+    """Запасной путь — номера групп способом основного бота (подписи «Группа 1», «Группа 2»…)."""
+    try:
+        ids = ps._spb_group_ids(session, slug, year_id) or []
+    except Exception:
+        ids = []
+    return [(f"Группа {i + 1}", g) for i, g in enumerate(ids)]
+
+
 def prev_groups(session, slug, year_id):
-    """Группы и этапы года в сезоне 2025/26 (включая финальные: «За 1-4 место» и т. п.).
-    Сначала — страница года рождения, запасной путь — календарь турнира."""
-    page = session.get(f"https://spb.fhr.ru/tournaments/{slug}-year-{year_id}/", timeout=25).text
-    groups = groups_from_html(page, year_id)
-    if groups:
-        return groups
-    page = session.get(f"https://spb.fhr.ru/tournaments/{slug}/calendar/", timeout=25).text
-    groups = groups_from_html(page, year_id)
-    if groups:
-        return groups
-    for attrs, label in re.findall(r"<option([^>]*)>\s*([^<]{1,20}?)\s*</option>", page):
+    """Группы и этапы года в сезоне 2025/26. Группы — на странице года рождения, финальные этапы
+    («За 1-4 место», «Переходный турнир»…) — только в общем календаре турнира, переключённом на год."""
+    found = []
+
+    def add(items):
+        for label, gid in items:
+            if gid not in [g for _, g in found]:
+                found.append((label, gid))
+
+    add(groups_from_html(session.get(f"https://spb.fhr.ru/tournaments/{slug}-year-{year_id}/", timeout=25).text, year_id))
+    cal_url = f"https://spb.fhr.ru/tournaments/{slug}/calendar/"
+    cal = session.get(cal_url, timeout=25).text
+    add(groups_from_html(cal, year_id))                  # календарь открыт на этом году по умолчанию
+    for attrs, label in re.findall(r"<option([^>]*)>\s*([^<]{1,20}?)\s*</option>", cal):
         val = re.search(r'value="(\d+)"', attrs)
         url = re.search(r'data-ajax="([^"]+)"', attrs)
         if val and url and val.group(1) == year_id:
-            u = H.unescape(url.group(1))
+            u = url.group(1).replace("&amp;", "&")
             u = u if u.startswith("http") else "https://spb.fhr.ru" + u
-            resp = session.get(u, timeout=25, headers={"X-Requested-With": "XMLHttpRequest",
-                                                         "Referer": f"https://spb.fhr.ru/tournaments/{slug}/calendar/"})
+            resp = session.get(u, timeout=25, headers={"X-Requested-With": "XMLHttpRequest", "Referer": cal_url})
             try:
                 text = json.dumps(resp.json(), ensure_ascii=False).replace("\\/", "/").replace('\\"', '"')
             except Exception:
                 text = resp.text
-            return groups_from_html(text, year_id)
-    return []
+            add(groups_from_html(text, year_id))
+    return found or _bot_groups(session, slug, year_id)
 
 
 def cur_groups(session, slug, year_id):
     page = session.get(f"https://spb.fhr.ru/tournaments/{slug}-year-{year_id}/", timeout=25).text
-    groups = groups_from_html(page, year_id)
-    if not groups:
-        manual = getattr(ps, "SPB_MANUAL_GROUPS", {}).get(year_id) or []
-        groups = [(f"Группа {i + 1}", g) for i, g in enumerate(manual)]
+    groups = groups_from_html(page, year_id) or _bot_groups(session, slug, year_id)
     return groups or [("Все", None)]
 
 

@@ -2112,6 +2112,19 @@ def check_groups_once(state: dict, access_token: str) -> None:
             save_state(state)
 
 
+def _role_allows_run():
+    """Резервирование (папка backup/): работать ли боту на этом компьютере сейчас."""
+    base = Path(__file__).parent
+    role_file = base / "backup" / "role"
+    role = role_file.read_text().strip() if role_file.exists() else ""
+    if role == "standby":
+        return (base / ".standby_active").exists()
+    if role == "primary":
+        ok = base / ".primary_ok"
+        return ok.exists() and time.time() - ok.stat().st_mtime < 300
+    return True
+
+
 def main() -> None:
     state = load_state()
     tokens = load_tokens()
@@ -2122,6 +2135,9 @@ def main() -> None:
     seconds_since_vk_check = POLL_INTERVAL_SECONDS
 
     while True:
+        if not _role_allows_run():          # резервирование: сейчас работает другой компьютер
+            time.sleep(30)
+            continue
         try:
             access_token, tokens = get_valid_access_token(tokens)
             process_admin_messages(admin_state, access_token)
