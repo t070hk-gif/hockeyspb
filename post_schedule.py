@@ -1192,6 +1192,7 @@ except Exception as _e:
 RESULTS_IMAGES_ENABLED = results_banner is not None
 RESULTS_IMAGES_DIR = Path(__file__).parent / "results_images"
 RESULTS_EDITS_PER_RUN = 15
+BANNER_STYLE = "tablo"     # стиль картинок; пост в другом стиле перерисуется один раз
 _results_edits_done = 0
 
 
@@ -1464,7 +1465,7 @@ def _update_day_post(existing, state, state_key, topic_id, banner_path, caption,
     global _results_edits_done
     img, img_fp = _results_image(state_key, banner_path, day_matches, spb_lookup, title,
                                  existing.get("image_fp"))
-    image_changed = img_fp != existing.get("image_fp")
+    image_changed = img_fp != existing.get("image_fp") or existing.get("style") != BANNER_STYLE
     caption_changed = existing.get("caption") != caption
     if not image_changed and not caption_changed:
         return
@@ -1479,6 +1480,7 @@ def _update_day_post(existing, state, state_key, topic_id, banner_path, caption,
         _results_edits_done += 1
         edit_media(existing["message_id"], img or banner_path, caption, topic_id)
         existing["image_fp"] = img_fp
+        existing["style"] = BANNER_STYLE
     else:
         edit_caption(existing["message_id"], caption, topic_id=topic_id)
     existing["caption"] = caption
@@ -1709,6 +1711,7 @@ def process_tournament(age: str, group: str, tournament_type: str, tournament_id
                     "message_id": message_id,
                     "caption": caption,
                     "image_fp": img_fp,
+                    "style": BANNER_STYLE,
                 }
                 save_state(state)
                 time.sleep(1)  # вежливая пауза между запросами к Telegram
