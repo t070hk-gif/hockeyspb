@@ -348,95 +348,126 @@ def _get_logo_image(team_name, logo_url):
 
 
 def draw_standings_image(title, by_group, out_path):
-    """Рисует турнирную таблицу (одна или несколько групп) как PNG."""
-    font_title = ImageFont.truetype(FONT_BOLD_PATH, 17 * SCALE)
-    font_group = ImageFont.truetype(FONT_BOLD_PATH, 12 * SCALE)
-    font_header = ImageFont.truetype(FONT_BOLD_PATH, 10 * SCALE)
-    font_row = ImageFont.truetype(FONT_PATH, 11 * SCALE)
-
-    total_height = HEADER_HEIGHT
-    for group_label, standings in by_group.items():
-        if not standings:
-            continue
-        if group_label:
-            total_height += GROUP_HEADER_HEIGHT
-        total_height += ROW_HEIGHT
-        total_height += ROW_HEIGHT * len(standings)
-    total_height += PADDING
-
-    img = Image.new('RGB', (IMG_WIDTH, total_height), color=COLOR_BG)
-    draw = ImageDraw.Draw(img)
-
-    draw.rectangle([0, 0, IMG_WIDTH, HEADER_HEIGHT], fill=COLOR_HEADER_BG)
-    # Диагональная акцентная полоса справа — тот же приём, что и в
-    # баннерах матчей (generate_banner.py), для визуального единства.
-    draw.polygon(
-        [(IMG_WIDTH * 0.80, 0), (IMG_WIDTH, 0), (IMG_WIDTH, HEADER_HEIGHT), (IMG_WIDTH * 0.72, HEADER_HEIGHT)],
-        fill=COLOR_HEADER_ACCENT,
-    )
-    draw.text((PADDING, HEADER_HEIGHT // 2), title, font=font_title, fill=COLOR_HEADER_TEXT, anchor="lm")
-    y = HEADER_HEIGHT
-
-    logo_col_w = LOGO_SIZE + 6 * SCALE  # логотип + небольшой отступ до текста названия
-
-    for group_label, standings in by_group.items():
-        if not standings:
-            continue
-
-        if group_label:
-            draw.rectangle([0, y, IMG_WIDTH, y + GROUP_HEADER_HEIGHT], fill=COLOR_GROUP_BG)
-            draw.text((PADDING, y + GROUP_HEADER_HEIGHT // 2), f"Группа {group_label}",
-                       font=font_group, fill=COLOR_GROUP_TEXT, anchor="lm")
-            y += GROUP_HEADER_HEIGHT
-
-        draw.rectangle([0, y, IMG_WIDTH, y + ROW_HEIGHT], fill=COLOR_TABLE_HEADER_BG)
-        x = PADDING
-        draw.text((x + COL_RANK_W / 2, y + ROW_HEIGHT / 2), "#", font=font_header, fill=COLOR_TEXT, anchor="mm")
-        x += COL_RANK_W
-        draw.text((x + logo_col_w, y + ROW_HEIGHT / 2), "Команда", font=font_header, fill=COLOR_TEXT, anchor="lm")
-        x += COL_TEAM_W
-        for label in ["И", "В", "П", "О"]:
-            draw.text((x + COL_STATS_W / 2, y + ROW_HEIGHT / 2), label, font=font_header, fill=COLOR_TEXT, anchor="mm")
-            x += COL_STATS_W
-        y += ROW_HEIGHT
-        draw.line([0, y, IMG_WIDTH, y], fill=COLOR_BORDER, width=1)
-
-        for i, t in enumerate(standings):
-            if i % 2 == 1:
-                draw.rectangle([0, y, IMG_WIDTH, y + ROW_HEIGHT], fill=COLOR_ROW_ALT)
-
-            x = PADDING
-            draw.text((x + COL_RANK_W / 2, y + ROW_HEIGHT / 2), str(t["rank"]), font=font_row, fill=COLOR_TEXT, anchor="mm")
-            x += COL_RANK_W
-
-            logo = _get_logo_image(t["team"], t.get("logo_url"))
-            if logo is not None:
-                logo_y = int(y + (ROW_HEIGHT - LOGO_SIZE) / 2)
-                img.paste(logo, (int(x), logo_y), logo)
-            draw.text((x + logo_col_w, y + ROW_HEIGHT / 2), display_team_name(t["team"]), font=font_row, fill=COLOR_TEXT, anchor="lm")
-            x += COL_TEAM_W
-
-            total_losses = t["losses"] + t.get("losses_ot", 0) + t.get("losses_so", 0)
-            for value in [t["games"], t["wins"], total_losses, t["points"]]:
-                draw.text((x + COL_STATS_W / 2, y + ROW_HEIGHT / 2), str(value), font=font_row, fill=COLOR_TEXT, anchor="mm")
-                x += COL_STATS_W
-            y += ROW_HEIGHT
-            draw.line([0, y, IMG_WIDTH, y], fill=COLOR_BORDER, width=1)
-
-    # Супер-сэмплинг: рисовали в SCALE-кратном разрешении (см. SCALE выше),
-    # теперь аккуратно уменьшаем до целевой ширины с качественным
-    # сглаживанием (LANCZOS) — это даёт заметно более чёткий текст, чем
-    # рисование сразу в целевом размере, и одновременно чуть уменьшает
-    # финальный размер файла перед сжатием со стороны Telegram.
-    target_width = 1600
-    target_height = int(total_height * target_width / IMG_WIDTH)
-    img = img.resize((target_width, target_height), Image.LANCZOS)
-
-    IMAGES_DIR.mkdir(exist_ok=True)
+    """Турнирная таблица в стиле «Табло». Размер всегда 1280×1440."""
     import os
+    from datetime import datetime as _dt
+    from PIL import ImageFilter
+    import generate_banner_v3 as _tb
+
+    S = 2
+    W, H = 1280, 1440
+    BG, PANEL, PANEL2, EDGE = (8, 11, 18), (17, 21, 31), (13, 17, 26), (48, 56, 74)
+    TEXT, MUTED, AMBER = (240, 244, 250), (140, 152, 176), (255, 200, 50)
+    fb = lambda s: ImageFont.truetype(FONT_BOLD_PATH, int(s * S))
+    fr = lambda s: ImageFont.truetype(FONT_PATH, int(s * S))
+
+    def led(d, text, x, y, cell, color):
+        for ch in text:
+            for r, row in enumerate(_tb.GLYPHS[ch]):
+                for c, bit in enumerate(row):
+                    if bit == "1":
+                        d.ellipse([x + c * cell, y + r * cell, x + c * cell + cell * 0.84, y + r * cell + cell * 0.84],
+                                  fill=color)
+            x += cell * 6.2
+    led_w = lambda text, cell: len(text) * cell * 6.2 - cell * 1.2
+
+    # --- какой баннер в шапке
+    year_m = re.search(r"(20\d\d)", title)
+    year = year_m.group(1) if year_m else ""
+    groups = [g for g in by_group if by_group[g]]
+    first_group = groups[0] if groups else None
+    letter_m = re.search(r"([АБAB])\s*$", str(first_group or ""))
+    letter = {"А": "a", "A": "a", "Б": "b", "B": "b"}.get(letter_m.group(1) if letter_m else "", "")
+    banners = Path(__file__).parent / "banners"
+    candidates = ([f"{year}_cup.png"] if ("ФЕДЕРАЦ" in title.upper() or year in ("2016", "2017", "2018")) else
+                  [f"{year}_group{letter}_champ.png", f"{year}_champ.png", f"{year}_groupa_champ.png"])
+    banner = next((banners / n for n in candidates if (banners / n).exists() and n), None)
+
+    img = Image.new("RGBA", (W * S, H * S), BG + (255,))
+    if banner:
+        b = Image.open(banner).convert("RGB")
+        hdr = b.resize((W * S, int(b.height * W * S / b.width)), Image.LANCZOS)
+        img.paste(hdr, (0, 0))
+        y = hdr.height
+    else:
+        y = 40 * S
+    d = ImageDraw.Draw(img)
+    group_label = ""
+    if first_group and len(groups) == 1:
+        g = str(first_group).strip()
+        group_label = g if g.lower().startswith("группа") else f"группа {g}"
+    d.text((36 * S, y + 40 * S), "ТУРНИРНАЯ ТАБЛИЦА", font=fb(32), fill=AMBER, anchor="lm")
+    d.text((W * S - 36 * S, y + 40 * S), "  ·  ".join(x for x in (group_label, f"на {_dt.now():%d.%m}") if x),
+           font=fr(22), fill=MUTED, anchor="rm")
+    y += 84 * S
+    cols = [("И", 880), ("В", 960), ("П", 1040), ("О", 1170)]
+    for name, x in cols:
+        d.text((x * S, y + 16 * S), name, font=fb(18), fill=MUTED, anchor="mm")
+    y += 36 * S
+
+    rows = []
+    for g in groups:
+        if len(groups) > 1:
+            rows.append(("group", g))
+        rows += [("team", t) for t in by_group[g]]
+    area_top, area_bottom = y, (H - 50) * S
+    n = max(1, len(rows))
+    rh = min((area_bottom - area_top) // n, 118 * S)
+    y = area_top + ((area_bottom - area_top) - rh * n) // 2
+    scale = rh / (72 * S)
+    glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    lit = []
+    i = 0
+    for kind, item in rows:
+        if kind == "group":
+            d.text((36 * S, y + rh // 2), str(item).upper(), font=fb(min(26, 22 * scale)), fill=AMBER, anchor="lm")
+            y += rh
+            i = 0
+            continue
+        t = item
+        top, bot = y + 4 * S, y + rh - 4 * S
+        mid = (top + bot) // 2
+        leader = t.get("rank") == 1
+        d.rounded_rectangle([20 * S, top, W * S - 20 * S, bot], radius=12 * S, fill=PANEL if i % 2 == 0 else PANEL2,
+                            outline=AMBER if leader else EDGE, width=(3 if leader else 1) * S)
+        cell = min(6, max(3, int(5 * scale))) * S
+        rank = str(t.get("rank", ""))
+        if rank.isdigit():
+            led(d, rank, 72 * S - led_w(rank, cell) / 2, mid - 3.5 * cell, cell, AMBER)
+        lg = int(min(56, 46 * scale)) * S
+        logo = _get_logo_image(t["team"], t.get("logo_url"))
+        if logo is not None:
+            logo = logo.copy()
+            logo.thumbnail((lg, lg), Image.LANCZOS)
+            img.alpha_composite(logo.convert("RGBA"), (120 * S + (lg - logo.width) // 2, mid - logo.height // 2))
+        name = display_team_name(t["team"]).upper()
+        name_x = 120 * S + lg + 18 * S
+        size = min(30, 24 * scale)
+        while size > 14 and d.textlength(name, font=fb(size)) > (cols[0][1] - 50) * S - name_x:
+            size -= 1
+        d.text((name_x, mid), name, font=fb(size), fill=TEXT, anchor="lm")
+        losses = t.get("losses", 0) + t.get("losses_ot", 0) + t.get("losses_so", 0)
+        for (cname, x), v in zip(cols[:3], (t.get("games", 0), t.get("wins", 0), losses)):
+            d.text((x * S, mid), str(v), font=fr(min(28, 22 * scale)), fill=TEXT, anchor="mm")
+        pc = min(7, max(3, int(5.5 * scale))) * S
+        ps = str(t.get("points", 0))
+        if ps.isdigit():
+            px = min(cols[3][1] * S - led_w(ps, pc) / 2, (W - 44) * S - led_w(ps, pc))
+            led(gd, ps, px, mid - 3.5 * pc, pc, (255, 160, 0, 170))
+            lit.append((ps, px, mid - 3.5 * pc, pc))
+        y += rh
+        i += 1
+    d.text((W * S - 36 * S, H * S - 24 * S), "fhspb.ru  ·  spb.fhr.ru", font=fr(18), fill=MUTED, anchor="rm")
+    img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(8 * S)))
+    d = ImageDraw.Draw(img)
+    for ps, px, py, pc in lit:          # очки поверх свечения — чёткие
+        led(d, ps, px, py, pc, AMBER)
+    img = img.convert("RGB").resize((W, H), Image.LANCZOS)
+    IMAGES_DIR.mkdir(exist_ok=True)
     tmp_path = f"{out_path}.tmp"
     img.save(tmp_path, format="PNG")
-    os.replace(tmp_path, out_path)  # подменяем готовый файл целиком
+    os.replace(tmp_path, out_path)
     return out_path
 
 

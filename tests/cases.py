@@ -259,3 +259,21 @@ def test_results_banner_live():
         rb.render(None, rows, "Сб 03.10.2026", "A", "Первенство СПб 2011 г.р.", out)
     from PIL import Image
     assert Image.open(out).size[0] == 1280
+
+
+def test_standings_tablo():
+    """Таблица «Табло»: короткая и длинная группа — одинаковый размер 1280×1440."""
+    with quiet():
+        import post_standings as st
+    st._get_logo_image = lambda team, url: None
+    st.IMAGES_DIR.mkdir(exist_ok=True)
+    row = lambda r, t, p: {"rank": r, "team": t, "games": 9, "wins": 5, "losses": 3, "losses_ot": 1,
+                           "losses_so": 0, "points": p, "logo_url": None}
+    from PIL import Image
+    sizes = []
+    for n in (4, 14):
+        out = st.IMAGES_DIR / f"t{n}.png"
+        st.draw_standings_image("Турнирная таблица — ПЕРВЕНСТВО СПБ 2011 г.р.",
+                                {"А": [row(i + 1, f"Команда {i}", 20 - i) for i in range(n)]}, out)
+        sizes.append(Image.open(out).size)
+    assert sizes == [(1280, 1440), (1280, 1440)], sizes
