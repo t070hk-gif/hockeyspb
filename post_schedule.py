@@ -764,7 +764,8 @@ def format_caption(date_label: str, matches: list, video_index: dict,
         if effective_score:
             if not RESULTS_IMAGES_ENABLED:
                 result_lines.append(f"Итог матча: {score_to_keycaps(effective_score)}")
-            protocol_link = spb_match["game_url"] if spb_match else m["protocol_url"]
+            # Пока на spb.fhr.ru матч не заполнен (нет счёта) — ссылка на протокол fhspb.ru
+            protocol_link = spb_match["game_url"] if spb_match and spb_match.get("score") else m["protocol_url"]
             result_lines.append(f"📋 <a href=\"{protocol_link}\">Протокол матча</a>")
 
         # Сыгранный матч: время уже не нужно — счёт на картинке с результатами.
