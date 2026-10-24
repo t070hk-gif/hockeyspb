@@ -7,6 +7,8 @@
     python3 generate_banner_v3.py              — сгенерировать набор в banners_tablo/
     python3 generate_banner_v3.py --install    — сгенерировать и заменить banners/
                                                  (прежние сохраняются в banners_before_tablo/)
+    python3 generate_banner_v3.py --friendly   — баннеры товарищеских игр в banners_friendly/
+                                                 (прежние — в banners_friendly_before_tablo/)
 """
 import shutil
 import sys
@@ -29,7 +31,9 @@ PLATES = {
     "КУБОК": "КУБОК СПБ",
     "КУБОК ФЕДЕРАЦИИ": "КУБОК ФЕДЕРАЦИИ",
     "КУБОК РОССИИ": "КУБОК РОССИИ",
+    "ТОВАРИЩЕСКИЙ": "ТОВАРИЩЕСКИЙ МАТЧ",
 }
+FRIENDLY_GREEN = (40, 170, 90)
 
 # Точечный шрифт 5×7, как на табло
 GLYPHS = {
@@ -76,18 +80,22 @@ def make_banner(year, group=None, tournament="ПЕРВЕНСТВО", out_path=No
     d.rounded_rectangle([20, 18, 900, H - 18], radius=18, fill=HOUSING, outline=HOUSING_EDGE, width=3)
 
     label = PLATES[tournament]
-    plate = GROUP_COLOR[group] if tournament == "ПЕРВЕНСТВО" else CUP_AMBER
-    ink = (255, 255, 255) if tournament == "ПЕРВЕНСТВО" else (20, 20, 20)
+    plate = (GROUP_COLOR[group] if tournament == "ПЕРВЕНСТВО" else
+             FRIENDLY_GREEN if tournament == "ТОВАРИЩЕСКИЙ" else CUP_AMBER)
+    ink = (255, 255, 255) if tournament in ("ПЕРВЕНСТВО", "ТОВАРИЩЕСКИЙ") else (20, 20, 20)
     pf = font(26)
     d.rounded_rectangle([44, 34, 44 + d.textlength(label, font=pf) + 36, 76], radius=8, fill=plate)
     d.text((62, 55), label, font=pf, fill=ink, anchor="lm")
 
     cell = 18
-    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    led(ImageDraw.Draw(glow), str(year), 54, 98, cell, LED_GLOW)
-    img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(7)))
-    d = ImageDraw.Draw(img)
-    end = led(d, str(year), 54, 98, cell, LED_ON, LED_OFF)
+    if not year:                                      # год неизвестен — прочерки на табло
+        end = led(d, "----", 54, 98, cell, (130, 100, 40), LED_OFF)
+    else:
+        glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        led(ImageDraw.Draw(glow), str(year), 54, 98, cell, LED_GLOW)
+        img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(7)))
+        d = ImageDraw.Draw(img)
+        end = led(d, str(year), 54, 98, cell, LED_ON, LED_OFF)
     if group in ("A", "B"):
         letter = "А" if group == "A" else "Б"
         d.text((end + 44, 104), "ГРУППА", font=font(22), fill=(150, 160, 180))
@@ -119,6 +127,9 @@ SET = (
 )
 
 
+FRIENDLY_SET = ([(str(y), f"friendly_{y}.png") for y in range(2009, 2019)] + [(None, "friendly_unknown.png")])
+
+
 def main():
     out_dir = BASE / "banners_tablo"
     out_dir.mkdir(exist_ok=True)
@@ -134,6 +145,15 @@ def main():
         for *_, name in SET:
             shutil.copy(out_dir / name, live / name)
         print(f"Баннеры «Табло» установлены в {live}. Вернуть прежние: cp {backup}/* {live}/")
+    if "--friendly" in sys.argv:                      # баннеры товарищеских игр
+        fr_live, fr_backup = BASE / "banners_friendly", BASE / "banners_friendly_before_tablo"
+        if fr_live.exists() and not fr_backup.exists():
+            shutil.copytree(fr_live, fr_backup)
+            print(f"Прежние баннеры товарищеских игр сохранены в {fr_backup}")
+        fr_live.mkdir(exist_ok=True)
+        for year, name in FRIENDLY_SET:
+            make_banner(year, None, "ТОВАРИЩЕСКИЙ", fr_live / name)
+        print(f"Баннеры товарищеских игр «Табло» установлены: {len(FRIENDLY_SET)} шт.")
 
 
 if __name__ == "__main__":
