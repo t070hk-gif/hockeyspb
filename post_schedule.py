@@ -558,6 +558,39 @@ def _breakdown_matches_score(periods_breakdown: list, effective_score: str) -> b
     return totals == expected
 
 
+# ---------- неполные данные завершённого матча: перепроверка с затуханием ----------
+_DETAILS_RETRY_FILE = Path(__file__).parent / "spb_details_retry.json"
+_DETAILS_RETRY = None
+
+
+def _details_retry_state():
+    global _DETAILS_RETRY
+    if _DETAILS_RETRY is None:
+        try:
+            _DETAILS_RETRY = json.loads(_DETAILS_RETRY_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _DETAILS_RETRY = {}
+    return _DETAILS_RETRY
+
+
+def _details_retry_due(game_id):
+    """Пора ли снова скачать страницу матча: 6 раз — раз в 10 мин, потом раз в час, после 30 — нет."""
+    last, tries = _details_retry_state().get(str(game_id), [0, 0])
+    if tries >= 30:
+        return False
+    return time.time() - last >= (600 if tries < 6 else 3600)
+
+
+def _details_retry_mark(game_id):
+    state = _details_retry_state()
+    last, tries = state.get(str(game_id), [0, 0])
+    state[str(game_id)] = [time.time(), tries + 1]
+    try:
+        _DETAILS_RETRY_FILE.write_text(json.dumps(state), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def format_caption(date_label: str, matches: list, video_index: dict,
                     spb_lookup: dict = None, spb_session=None,
                     spb_details_cache: dict = None, domain: str = "spb.fhr.ru",
@@ -664,7 +697,8 @@ def format_caption(date_label: str, matches: list, video_index: dict,
                     # запрашиваем повторно.
                     periods_breakdown = _direct_periods_breakdown
                     spb_details_cache[spb_match["game_id"]] = periods_breakdown
-                elif spb_session is not None:
+                elif spb_session is not None and _details_retry_due(spb_match["game_id"]):
+                    _details_retry_mark(spb_match["game_id"])
                     try:
                         details = spb_fhr_client.fetch_match_live_details(spb_session, spb_match["game_id"], domain=domain)
                         periods_breakdown = details["periods_breakdown"]

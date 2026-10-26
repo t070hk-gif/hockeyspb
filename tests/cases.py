@@ -316,3 +316,19 @@ def test_festive_animation():
     with quiet():
         ps.send_photo(5, banner, "подпись")
     assert calls[0] == "sendPhoto", calls
+
+
+def test_details_retry():
+    """Неполные данные матча перепроверяются с затуханием, а не на каждом прогоне."""
+    with quiet():
+        import post_schedule as ps
+    import time as _t
+    ps._DETAILS_RETRY = {}
+    ps._DETAILS_RETRY_FILE = HERE / "retry_test.json"
+    assert ps._details_retry_due("1")
+    ps._details_retry_mark("1")
+    assert not ps._details_retry_due("1")                     # сразу повторно — нет
+    ps._DETAILS_RETRY["1"][0] -= 601
+    assert ps._details_retry_due("1")                         # через 10 минут — да
+    ps._DETAILS_RETRY["1"] = [_t.time() - 4000, 30]
+    assert not ps._details_retry_due("1")                     # после 30 попыток — больше не дёргаем
