@@ -112,7 +112,15 @@ def make_banner(year, group=None, tournament="ПЕРВЕНСТВО", out_path=No
         led(d, letter, end + 44, 136, 12, GROUP_LED[group], (24, 26, 32))
 
     size, cx, cy = 150, 1052, H // 2
-    logo_path = KR_LOGO_PATH if tournament == "КУБОК РОССИИ" and KR_LOGO_PATH.exists() else LOGO_PATH
+    if tournament == "КУБОК РОССИИ" and KR_LOGO_PATH.exists():
+        # Логотип Кубка России — без круга, крупнее, без собственного фона
+        logo = _logo_without_background(Image.open(KR_LOGO_PATH))
+        box = 200
+        k = min(box / logo.width, box / logo.height)
+        logo = logo.resize((max(1, round(logo.width * k)), max(1, round(logo.height * k))), Image.LANCZOS)
+        img.alpha_composite(logo, (cx - logo.width // 2, cy - logo.height // 2))
+        return _finish(img, out_path)
+    logo_path = LOGO_PATH
     try:
         logo = Image.open(logo_path).convert("RGBA")
         logo = logo.resize((size, size), Image.LANCZOS)
@@ -122,10 +130,35 @@ def make_banner(year, group=None, tournament="ПЕРВЕНСТВО", out_path=No
         d.ellipse([cx - 75, cy - 75, cx + 75, cy + 75], fill=(255, 255, 255))
         d.text((cx, cy), "ФХ СПб", font=font(28), fill=(10, 40, 120), anchor="mm")
 
+    return _finish(img, out_path)
+
+
+def _finish(img, out_path):
     img = img.convert("RGB")
     if out_path:
         img.save(out_path)
     return img
+
+
+def _logo_without_background(src, tol=48):
+    """Логотип без фона: если картинка непрозрачная — цвет фона берётся по углам и становится
+    прозрачным; пустые поля обрезаются, чтобы логотип был крупным."""
+    img = src.convert("RGBA")
+    w, h = img.size
+    corners = [img.getpixel((x, y)) for x, y in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))]
+    if all(a > 200 for *_, a in corners):
+        bg = tuple(sum(c[i] for c in corners) // 4 for i in range(3))
+        px = img.load()
+        for y in range(h):
+            for x in range(w):
+                r, g, b, a = px[x, y]
+                dist = abs(r - bg[0]) + abs(g - bg[1]) + abs(b - bg[2])
+                if dist < tol:
+                    px[x, y] = (r, g, b, 0)
+                elif dist < tol * 2:                      # мягкий край без ореола
+                    px[x, y] = (r, g, b, int(a * (dist - tol) / tol))
+    bbox = img.getchannel("A").getbbox()
+    return img.crop(bbox) if bbox else img
 
 
 SET = (
