@@ -7,6 +7,7 @@
     python3 generate_banner_v3.py              — сгенерировать набор в banners_tablo/
     python3 generate_banner_v3.py --install    — сгенерировать и заменить banners/
                                                  (прежние сохраняются в banners_before_tablo/)
+    python3 generate_banner_v3.py --fetch-kr-logo   — скачать логотип Кубка России со страницы турнира
     python3 generate_banner_v3.py --friendly   — баннеры товарищеских игр в banners_friendly/
                                                  (прежние — в banners_friendly_before_tablo/)
 """
@@ -34,6 +35,8 @@ PLATES = {
     "ТОВАРИЩЕСКИЙ": "ТОВАРИЩЕСКИЙ МАТЧ",
 }
 FRIENDLY_GREEN = (40, 170, 90)
+ROSSII_BLUE = (0, 57, 166)                    # Кубок России — синяя плашка с триколором
+KR_LOGO_PATH = BASE / "kubok_rossii_logo.png" # логотип Кубка России (python3 generate_banner_v3.py --fetch-kr-logo)
 
 # Точечный шрифт 5×7, как на табло
 GLYPHS = {
@@ -81,11 +84,18 @@ def make_banner(year, group=None, tournament="ПЕРВЕНСТВО", out_path=No
 
     label = PLATES[tournament]
     plate = (GROUP_COLOR[group] if tournament == "ПЕРВЕНСТВО" else
-             FRIENDLY_GREEN if tournament == "ТОВАРИЩЕСКИЙ" else CUP_AMBER)
-    ink = (255, 255, 255) if tournament in ("ПЕРВЕНСТВО", "ТОВАРИЩЕСКИЙ") else (20, 20, 20)
+             FRIENDLY_GREEN if tournament == "ТОВАРИЩЕСКИЙ" else
+             ROSSII_BLUE if tournament == "КУБОК РОССИИ" else CUP_AMBER)
+    ink = (255, 255, 255) if tournament in ("ПЕРВЕНСТВО", "ТОВАРИЩЕСКИЙ", "КУБОК РОССИИ") else (20, 20, 20)
     pf = font(26)
-    d.rounded_rectangle([44, 34, 44 + d.textlength(label, font=pf) + 36, 76], radius=8, fill=plate)
+    pw = d.textlength(label, font=pf) + 36
+    d.rounded_rectangle([44, 34, 44 + pw, 76], radius=8, fill=plate)
     d.text((62, 55), label, font=pf, fill=ink, anchor="lm")
+    if tournament == "КУБОК РОССИИ":                  # триколор под плашкой
+        third = pw / 3
+        for i, col in enumerate(((255, 255, 255), (0, 57, 166), (213, 43, 30))):
+            d.rectangle([44 + i * third, 80, 44 + (i + 1) * third, 85], fill=col)
+        d.rectangle([44, 80, 44 + pw, 85], outline=(70, 80, 100), width=1)
 
     cell = 18
     if not year:                                      # год неизвестен — прочерки на табло
@@ -102,8 +112,9 @@ def make_banner(year, group=None, tournament="ПЕРВЕНСТВО", out_path=No
         led(d, letter, end + 44, 136, 12, GROUP_LED[group], (24, 26, 32))
 
     size, cx, cy = 150, 1052, H // 2
+    logo_path = KR_LOGO_PATH if tournament == "КУБОК РОССИИ" and KR_LOGO_PATH.exists() else LOGO_PATH
     try:
-        logo = Image.open(LOGO_PATH).convert("RGBA")
+        logo = Image.open(logo_path).convert("RGBA")
         logo = logo.resize((size, size), Image.LANCZOS)
         d.ellipse([cx - size // 2 - 8, cy - size // 2 - 8, cx + size // 2 + 8, cy + size // 2 + 8], fill=(255, 255, 255))
         img.alpha_composite(logo, (cx - size // 2, cy - size // 2))
@@ -127,10 +138,42 @@ SET = (
 )
 
 
+def fetch_kr_logo(pick=None):
+    """Логотип Кубка России со страницы турнира: показывает картинки-кандидаты и сохраняет выбранную."""
+    import io
+    import re
+    import requests
+    sys.path.insert(0, str(BASE))
+    import spb_fhr_client as c
+    s = c.create_session_kubok_rossii()
+    base = f"https://{c.KUBOK_ROSSII_DOMAIN}"
+    page = s.get(f"{base}/tournaments/{c.KUBOK_ROSSII_TOURNAMENT_SLUG}/", timeout=25).text
+    imgs = []
+    for u in re.findall(r'<img[^>]+?(?:data-src|src)="([^"]+)"', page):
+        if re.search(r"teams|default|sprite|flag|avatar|icons?/", u) or u in imgs:
+            continue
+        imgs.append(u if u.startswith("http") else base + u)
+    if not imgs:
+        print("На странице турнира картинок не нашлось")
+        return
+    for i, u in enumerate(imgs[:10]):
+        print(f"  [{i}] {u}")
+    if pick is None:
+        pick = next((i for i, u in enumerate(imgs) if re.search(r"tournament|logo|upload|iblock", u, re.I)), 0)
+    data = s.get(imgs[pick], timeout=25).content
+    Image.open(io.BytesIO(data)).convert("RGBA").save(KR_LOGO_PATH)
+    print(f"Сохранён [{pick}] как {KR_LOGO_PATH.name} — откройте и проверьте: open {KR_LOGO_PATH.name}")
+    print("Если это не тот логотип, выберите другой номер: python3 generate_banner_v3.py --fetch-kr-logo НОМЕР")
+
+
 FRIENDLY_SET = ([(str(y), f"friendly_{y}.png") for y in range(2009, 2019)] + [(None, "friendly_unknown.png")])
 
 
 def main():
+    if "--fetch-kr-logo" in sys.argv:
+        i = sys.argv.index("--fetch-kr-logo")
+        fetch_kr_logo(int(sys.argv[i + 1]) if len(sys.argv) > i + 1 and sys.argv[i + 1].isdigit() else None)
+        return
     out_dir = BASE / "banners_tablo"
     out_dir.mkdir(exist_ok=True)
     for year, group, tournament, name in SET:
