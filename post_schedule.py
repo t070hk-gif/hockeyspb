@@ -1342,9 +1342,10 @@ PROTOCOL_CACHE_FILE = Path(__file__).parent / "spb_protocol_cache.json"
 PROTOCOL_RETRY_SECONDS = 900
 _protocol_cache = None
 _protocol_session = None
+_PROTOCOL_SESSIONS = {}
 
 
-def _protocol_summary(game_id, expected_goals):
+def _protocol_summary(game_id, expected_goals, url=None):
     """Сводка протокола матча (из памяти; загрузка — один раз)."""
     global _protocol_cache, _protocol_session
     if spb_protocol is None or spb_fhr_client is None:
@@ -1358,9 +1359,15 @@ def _protocol_summary(game_id, expected_goals):
     if entry and (entry.get("complete") or time.time() - entry.get("fetched", 0) < PROTOCOL_RETRY_SECONDS):
         return entry.get("summary")
     try:
-        if _protocol_session is None:
-            _protocol_session = spb_fhr_client.create_session()
-        page = _protocol_session.get(f"https://spb.fhr.ru/games/{game_id}/", timeout=25).text
+        target = url or f"https://spb.fhr.ru/games/{game_id}/"      # протокол — с сайта самой игры
+        if spb_fhr_client.KUBOK_ROSSII_DOMAIN in target:
+            session = _PROTOCOL_SESSIONS.get("junior") or _PROTOCOL_SESSIONS.setdefault(
+                "junior", spb_fhr_client.create_session_kubok_rossii())
+        else:
+            if _protocol_session is None:
+                _protocol_session = spb_fhr_client.create_session()
+            session = _protocol_session
+        page = session.get(target, timeout=25).text
         summary = spb_protocol.summarize(page)
     except Exception as e:
         print(f"[WARN] Протокол матча {game_id} не получен: {e}")
@@ -1378,7 +1385,7 @@ def _protocol_extras(m, spb_lookup, score):
     sm = (spb_lookup or {}).get(build_match_key(plain_date(m["date"]), m["team1"], m["team2"]))
     if not sc or not sm:
         return {}
-    summary = _protocol_summary(sm["game_id"], sc[0] + sc[1])
+    summary = _protocol_summary(sm["game_id"], sc[0] + sc[1], sm.get("game_url"))
     if not summary:
         return {}
     import difflib
