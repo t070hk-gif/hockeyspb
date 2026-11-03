@@ -33,7 +33,10 @@ PLATES = {
     "КУБОК ФЕДЕРАЦИИ": "КУБОК ФЕДЕРАЦИИ",
     "КУБОК РОССИИ": "КУБОК РОССИИ",
     "ТОВАРИЩЕСКИЙ": "ТОВАРИЩЕСКИЙ МАТЧ",
+    "ТЕРРИТОРИЯ ХОККЕЯ U15": "ТЕРРИТОРИЯ ХОККЕЯ U15",
+    "ТЕРРИТОРИЯ ХОККЕЯ U14": "ТЕРРИТОРИЯ ХОККЕЯ U14",
 }
+TERRITORIYA_TEAL = (0, 150, 136)              # «Территория хоккея» — бирюзовая плашка
 FRIENDLY_GREEN = (40, 170, 90)
 ROSSII_BLUE = (0, 57, 166)                    # Кубок России — синяя плашка с триколором
 KR_LOGO_PATH = BASE / "kubok_rossii_logo.png" # логотип Кубка России (python3 generate_banner_v3.py --fetch-kr-logo)
@@ -85,8 +88,10 @@ def make_banner(year, group=None, tournament="ПЕРВЕНСТВО", out_path=No
     label = PLATES[tournament]
     plate = (GROUP_COLOR[group] if tournament == "ПЕРВЕНСТВО" else
              FRIENDLY_GREEN if tournament == "ТОВАРИЩЕСКИЙ" else
-             ROSSII_BLUE if tournament == "КУБОК РОССИИ" else CUP_AMBER)
-    ink = (255, 255, 255) if tournament in ("ПЕРВЕНСТВО", "ТОВАРИЩЕСКИЙ", "КУБОК РОССИИ") else (20, 20, 20)
+             ROSSII_BLUE if tournament == "КУБОК РОССИИ" else
+             TERRITORIYA_TEAL if tournament.startswith("ТЕРРИТОРИЯ") else CUP_AMBER)
+    ink = (255, 255, 255) if (tournament in ("ПЕРВЕНСТВО", "ТОВАРИЩЕСКИЙ", "КУБОК РОССИИ")
+                              or tournament.startswith("ТЕРРИТОРИЯ")) else (20, 20, 20)
     pf = font(26)
     pw = d.textlength(label, font=pf) + 36
     d.rounded_rectangle([44, 34, 44 + pw, 76], radius=8, fill=plate)
@@ -168,6 +173,8 @@ SET = (
     + [(y, g, "ПЕРВЕНСТВО", f"{y}_group{g.lower()}_champ.png")
        for y in ("2011", "2012", "2013", "2014", "2015") for g in ("A", "B")]
     + [("2011", None, "КУБОК РОССИИ", "2011_kubokrossii.png")]
+    + [("2012", None, "ТЕРРИТОРИЯ ХОККЕЯ U15", "2012_territoriya.png"),
+       ("2013", None, "ТЕРРИТОРИЯ ХОККЕЯ U14", "2013_territoriya.png")]
 )
 
 

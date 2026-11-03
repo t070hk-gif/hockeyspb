@@ -332,3 +332,17 @@ def test_details_retry():
     assert ps._details_retry_due("1")                         # через 10 минут — да
     ps._DETAILS_RETRY["1"] = [_t.time() - 4000, 30]
     assert not ps._details_retry_due("1")                     # после 30 попыток — больше не дёргаем
+
+
+def test_junior_tournaments():
+    """Турниры junior.fhr.ru списком: у каждого свой ключ постов, баннер и тема."""
+    with quiet():
+        import post_schedule as ps
+    keys = [t["key"] for t in ps.JUNIOR_TOURNAMENTS]
+    assert len(keys) == len(set(keys)) and "kubokrossii" in keys
+    for t in ps.JUNIOR_TOURNAMENTS:
+        assert t["age"] in ps.TOPIC_IDS, t
+    import generate_banner_v3 as gb
+    from PIL import Image
+    img = gb.make_banner("2012", None, "ТЕРРИТОРИЯ ХОККЕЯ U15")
+    assert img.size == (1200, 260)

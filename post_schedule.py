@@ -1844,121 +1844,107 @@ def process_tournament(age: str, group: str, tournament_type: str, tournament_id
 KUBOK_ROSSII_BANNER = BANNERS_DIR / "2011_kubokrossii.png"
 
 
+JUNIOR_TOURNAMENTS = [
+    # key — начало ключа постов; slug None — Кубок России через fetch_kubok_rossii_matches
+    {"key": "kubokrossii", "name": "Кубок России", "label": "КУБОК РОССИИ", "age": "2011",
+     "slug": None, "banner": "2011_kubokrossii.png"},
+    {"key": "territoriya15", "name": "Территория хоккея U15", "label": "ТЕРРИТОРИЯ ХОККЕЯ U15", "age": "2012",
+     "slug": "territoriya-khokkeya-u15-26308586", "banner": "2012_territoriya.png"},
+    {"key": "territoriya14", "name": "Территория хоккея U14", "label": "ТЕРРИТОРИЯ ХОККЕЯ U14", "age": "2013",
+     "slug": "territoriya-khokkeya-u14-26308525", "banner": "2013_territoriya.png"},
+]
+
+
 def process_kubok_rossii(state: dict, dry_run: bool, spb_rossii_session=None,
                           official_keys: set = None, spb_details_cache: dict = None,
                           video_index: dict = None, live_cache: dict = None) -> None:
-    """Кубок России (2011 г.р.) — данные приходят НАПРЯМУЮ с junior.fhr.ru
-    (другой домен и структура страницы, чем у Кубка СПБ), поэтому логика
-    отдельная от process_tournament(), хоть и максимально похожая."""
+    """Все турниры junior.fhr.ru из JUNIOR_TOURNAMENTS — по очереди, сбой одного не мешает другим."""
     if spb_fhr_client is None or spb_rossii_session is None:
         return
+    for cfg in JUNIOR_TOURNAMENTS:
+        try:
+            _process_junior(cfg, state, dry_run, spb_rossii_session, official_keys,
+                            spb_details_cache, video_index, live_cache)
+        except Exception as e:
+            print(f"[WARN] {cfg['name']}: {e}")
 
-    age = "2011"
+
+def _process_junior(cfg, state, dry_run, session, official_keys, spb_details_cache, video_index, live_cache):
+    age, name, label = cfg["age"], cfg["name"], cfg["label"]
     topic_id = TOPIC_IDS[age]
-
+    banner = BANNERS_DIR / cfg["banner"]
     try:
-        rossii_matches = spb_fhr_client.fetch_kubok_rossii_matches(spb_rossii_session)
+        if cfg["slug"] is None:
+            junior_matches = spb_fhr_client.fetch_kubok_rossii_matches(session)
+            order = list(spb_fhr_client.KUBOK_ROSSII_GROUP_IDS.keys())
+        else:
+            junior_matches, order = spb_fhr_client.fetch_junior_matches(
+                session, cfg["slug"], cfg["slug"].rsplit("-", 1)[1])
     except Exception as e:
-        print(f"[WARN] Кубок России недоступен: {e}")
+        print(f"[WARN] {name} недоступен: {e}")
         return
-
-    if not rossii_matches:
+    if not junior_matches:
         return
+    if cfg["slug"] is None:
+        # Справочник участников Кубка России — VK-бот ищет по нему видео из групп Кубка России
+        teams = sorted({t for rm in junior_matches for t in (rm["team1"], rm["team2"])})
+        KUBOK_ROSSII_TEAMS_FILE.write_text(json.dumps(teams, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # Сохраняем полный список участников Кубка России (все команды, что
-    # встретились хоть в одном матче) — VK-бот использует этот файл как
-    # ОТДЕЛЬНЫЙ справочник команд специально для видео из групп Кубка
-    # России, вместо обычного teams.json (тот собран с fhspb.ru и содержит
-    # только санкт-петербургские клубы — команды из других регионов вроде
-    # "Динамо-Джуниверс", "Крылья Советов" там попросту отсутствуют).
-    rossii_teams = sorted({t for rm in rossii_matches for t in (rm["team1"], rm["team2"])})
-    KUBOK_ROSSII_TEAMS_FILE.write_text(
-        json.dumps(rossii_teams, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-    # Приводим к тому же "виду", что и матчи fhspb.ru — arena нет,
-    # protocol_url сразу указывает на junior.fhr.ru (там же и подробный
-    # протокол, отдельно искать его на fhspb.ru не нужно).
-    matches = []
-    spb_lookup = {}
-    for rm in rossii_matches:
-        m = {
-            "date": rm["date"], "time": rm["time"], "arena": "",
-            "team1": rm["team1"], "team2": rm["team2"],
-            "score": rm["score"], "protocol_url": rm["game_url"],
-            "group_label": rm.get("group"),
-        }
+    matches, spb_lookup = [], {}
+    tag = "kubok_rossii" if cfg["key"] == "kubokrossii" else cfg["key"]
+    for rm in junior_matches:
+        m = {"date": rm["date"], "time": rm["time"], "arena": "", "team1": rm["team1"], "team2": rm["team2"],
+             "score": rm["score"], "protocol_url": rm["game_url"], "group_label": rm.get("group")}
         matches.append(m)
-
         key = build_match_key(plain_date(m["date"]), m["team1"], m["team2"])
         if official_keys is not None:
             official_keys.add(key)
-            _record_official_fixture(key, age, "kubok_rossii", time=m.get("time"))
+            _record_official_fixture(key, age, tag, time=m.get("time"))
         spb_lookup[key] = {"game_id": rm["game_id"], "game_url": rm["game_url"], "score": rm["score"]}
 
-    if not KUBOK_ROSSII_BANNER.exists():
-        print(f"[WARN] Баннер не найден: {KUBOK_ROSSII_BANNER} — пропускаю Кубок России")
+    if not banner.exists():
+        print(f"[WARN] Баннер не найден: {banner} — пропускаю {name}")
         return
 
     by_date = {}
     for m in matches:
         by_date.setdefault(m["date"], []).append(m)
-
-    # Сортируем матчи внутри каждого дня по группе (в порядке А-I, Б-I,
-    # В-I, Г-I) — иначе матчи разных групп могли бы идти вперемешку по
-    # времени, и заголовок группы в format_caption "прыгал" бы туда-сюда
-    # несколько раз вместо одного аккуратного блока на группу.
-    group_order = {name: i for i, name in enumerate(spb_fhr_client.KUBOK_ROSSII_GROUP_IDS.keys())}
+    group_order = {g: i for i, g in enumerate(order)}
     for day_matches in by_date.values():
-        day_matches.sort(key=lambda m: group_order.get(m.get("group_label"), 999))
+        day_matches.sort(key=lambda m: (group_order.get(m.get("group_label"), 999), m.get("time") or ""))
 
     for date_label, day_matches in by_date.items():
-        state_key = f"kubokrossii_{date_label}"
-
+        state_key = f"{cfg['key']}_{date_label}"
         if live_cache is not None:
-            live_cache[state_key] = {
-                "date_label": date_label,
-                "matches": day_matches,
-                "spb_lookup": spb_lookup,
-                "age": age[-2:],
-                "domain": spb_fhr_client.KUBOK_ROSSII_DOMAIN,
-                "topic_id": topic_id,
-            }
-
-        caption = format_caption(date_label, day_matches, video_index or {}, spb_lookup, spb_rossii_session,
-                                  spb_details_cache, domain=spb_fhr_client.KUBOK_ROSSII_DOMAIN, age=age[-2:])
-
+            live_cache[state_key] = {"date_label": date_label, "matches": day_matches, "spb_lookup": spb_lookup,
+                                     "age": age[-2:], "domain": spb_fhr_client.KUBOK_ROSSII_DOMAIN,
+                                     "topic_id": topic_id}
+        caption = format_caption(date_label, day_matches, video_index or {}, spb_lookup, session,
+                                 spb_details_cache, domain=spb_fhr_client.KUBOK_ROSSII_DOMAIN, age=age[-2:])
         existing = state.get(state_key)
-
         if existing is None:
             try:
-                match_date = parse_match_date(date_label)
-                days_until = (match_date - datetime.now().date()).days
+                days_until = (parse_match_date(date_label) - datetime.now().date()).days
             except (ValueError, IndexError):
                 days_until = 0
-
             if days_until > 1:
                 continue
-            # Пост на ЗАВТРАШНИЕ игры — только вечером накануне, после
-            # PUBLISH_EVE_HOUR (игры сегодня/прошедшие публикуются сразу).
             if days_until == 1 and datetime.now().hour < PUBLISH_EVE_HOUR:
                 continue
-
-            print(f"\n[НОВЫЙ ПОСТ] {age} г.р. КУБОК РОССИИ — {date_label}")
+            print(f"\n[НОВЫЙ ПОСТ] {age} г.р. {label} — {date_label}")
             print(caption)
             if not dry_run:
-                img, img_fp = _results_image(state_key, KUBOK_ROSSII_BANNER, day_matches, spb_lookup,
-                                             f"Кубок России {age} г.р.", None)
-                message_id = send_photo(topic_id, img or KUBOK_ROSSII_BANNER, caption)
-                state[state_key] = {"message_id": message_id, "caption": caption, "image_fp": img_fp}
+                img, img_fp = _results_image(state_key, banner, day_matches, spb_lookup, f"{name} {age} г.р.", None)
+                message_id = send_photo(topic_id, img or banner, caption)
+                state[state_key] = {"message_id": message_id, "caption": caption, "image_fp": img_fp,
+                                    "style": globals().get("BANNER_STYLE", "")}
                 save_state(state)
                 time.sleep(1)
             else:
                 print("  (dry-run — не отправлено)")
         else:
-            _update_day_post(existing, state, state_key, topic_id, KUBOK_ROSSII_BANNER, caption,
-                             day_matches, spb_lookup, f"Кубок России {age} г.р.",
-                             f"{age} г.р. КУБОК РОССИИ — {date_label}", dry_run)
+            _update_day_post(existing, state, state_key, topic_id, banner, caption, day_matches, spb_lookup,
+                             f"{name} {age} г.р.", f"{age} г.р. {label} — {date_label}", dry_run)
 
 
 def main() -> None:

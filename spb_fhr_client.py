@@ -251,6 +251,63 @@ def discover_kubok_rossii_groups(session):
     return saved.get("groups") or dict(KUBOK_ROSSII_GROUP_IDS)
 
 
+def discover_junior_groups(session, slug, tournament_id):
+    """Группы и этапы турнира junior.fhr.ru: {подпись: [YEAR_ID, GROUP_ID]} (раз в 6 часов)."""
+    import json as _json
+    import re as _re
+    from pathlib import Path as _Path
+    cache_file = _Path(__file__).parent / "junior_groups.json"
+    try:
+        cache = _json.loads(cache_file.read_text(encoding="utf-8"))
+    except Exception:
+        cache = {}
+    saved = cache.get(slug) or {}
+    if saved.get("groups") and time.time() - saved.get("time", 0) < 6 * 3600:
+        return saved["groups"]
+    found = {}
+    base = f"https://{KUBOK_ROSSII_DOMAIN}/tournaments/{slug}"
+    for url in (f"{base}/", f"{base}/calendar/"):
+        try:
+            page = session.get(url, timeout=25).text
+        except Exception:
+            continue
+        for m in _re.finditer(r'data-ajax-link="([^"]+)"', page):
+            p = _rossii_decode_params(m.group(1))
+            gid, yid = p.get("GROUP_ID"), p.get("YEAR_ID")
+            if not gid or not yid or any(v[1] == gid for v in found.values()):
+                continue
+            if p.get("TOURNAMENT_ID") and p["TOURNAMENT_ID"] != str(tournament_id):
+                continue
+            seg = page[m.end(): m.end() + 800]
+            nxt = seg.find("data-ajax-link")
+            seg = seg[:nxt] if nxt > 0 else seg
+            label = next((t.strip() for t in _re.findall(r">([^<]*)<", seg) if t.strip() and len(t.strip()) <= 40), "")
+            found[label or f"Группа {len(found) + 1}"] = [yid, gid]
+    if found:
+        cache[slug] = {"time": time.time(), "groups": found}
+        try:
+            cache_file.write_text(_json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+        return found
+    return saved.get("groups") or {}
+
+
+def fetch_junior_matches(session, slug, tournament_id):
+    """Все игры турнира junior.fhr.ru по всем группам. Возвращает (матчи, порядок групп)."""
+    groups = discover_junior_groups(session, slug, tournament_id)
+    games, order = {}, list(groups)
+    for label, (year_id, group_id) in groups.items():
+        try:
+            for m in fetch_calendar_matches(session, tournament_id, year_id, domain=KUBOK_ROSSII_DOMAIN, group_id=group_id) or []:
+                m["group"] = label
+                games[m.get("game_id") or (m["date"], m["team1"], m["team2"])] = m
+        except Exception as e:
+            print(f"[WARN] {slug}, {label}: не удалось получить расписание: {e}")
+        time.sleep(1.5)
+    return list(games.values()), order
+
+
 def fetch_kubok_rossii_matches(session):
     all_matches = []
     groups = discover_kubok_rossii_groups(session)
