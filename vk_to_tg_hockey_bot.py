@@ -211,11 +211,24 @@ def refresh_access_token(tokens: dict) -> dict:
     return new_data
 
 
+def _vk_service_key():
+    """Бессрочный сервисный ключ приложения VK из config.json (vk_service_key) — для чтения
+    открытых видео и стен его достаточно: без входа и без продлений токена."""
+    try:
+        return json.loads((Path(__file__).parent / "config.json").read_text(encoding="utf-8")).get("vk_service_key") or ""
+    except Exception:
+        return ""
+
+
 def get_valid_access_token(tokens: dict) -> tuple:
     """
     Возвращает (access_token, tokens) — обновляя токен, если он истёк
     или истекает в ближайшие 2 минуты.
+    Если в config.json задан vk_service_key — возвращает его (без продлений).
     """
+    key = _vk_service_key()
+    if key:
+        return key, tokens
     # Перечитываем файл: токен мог обновить ручной скрипт или get_vk_token.py.
     try:
         disk = load_tokens()

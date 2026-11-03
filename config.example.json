@@ -1,5 +1,6 @@
 {
   "tg_bot_token": "1234567890:AA...токен от @BotFather",
   "tg_chat_id": -1002723611949,
-  "admin_id": 1158946041
+  "admin_id": 1158946041,
+  "vk_service_key": ""
 }
