@@ -2203,6 +2203,12 @@ def main() -> None:
     ADMIN_CHECK_INTERVAL = 10
     seconds_since_vk_check = POLL_INTERVAL_SECONDS
 
+    if "--once" in sys.argv:                 # облако: один проход и выход
+        access_token, tokens = get_valid_access_token(tokens)
+        process_admin_messages(admin_state, access_token)
+        check_groups_once(state, access_token)
+        return
+
     while True:
         if not _role_allows_run():          # резервирование: сейчас работает другой компьютер
             time.sleep(30)

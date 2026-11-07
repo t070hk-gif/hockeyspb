@@ -88,12 +88,17 @@ def state_files():
 
 
 # ----------------------------------------------------------------- ветка state
+def _repo():
+    """Адрес репозитория: в облаке — из переменной окружения (с токеном GitHub)."""
+    return os.environ.get("GH_BACKUP_REPO") or cfg()["repo"]
+
+
 def ensure_state_repo():
     if (STATE_DIR / ".git").exists():
         return
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     git("init", "-q", cwd=STATE_DIR)
-    git("remote", "add", "origin", cfg()["repo"], cwd=STATE_DIR)
+    git("remote", "add", "origin", _repo(), cwd=STATE_DIR)
     git("config", "user.name", "vk-bot", cwd=STATE_DIR)
     git("config", "user.email", "vk-bot@localhost", cwd=STATE_DIR)
 
@@ -164,18 +169,12 @@ def bots_running():
 # ----------------------------------------------------------------- синхронизация
 def sync_primary():
     meta = fetch_meta()
-    if meta.get("active") == "standby":
-        log("работает резервный — прошу работу обратно")
-        push_snapshot(dict(meta, request="takeback"), take_local=False)
-        deadline = time.time() + TAKEBACK_WAIT
-        while time.time() < deadline:
-            time.sleep(1 if TEST else 15)
-            meta = fetch_meta()
-            if meta.get("active") == "released":
-                break
-        n = restore()
-        log(f"забрал с резервного {n} файлов состояния")
-        notify("✅ MacBook снова в работе: данные с резервного компьютера забраны, резервный остановлен")
+    if meta.get("active") in ("standby", "cloud"):
+        who = "облака" if meta.get("active") == "cloud" else "резервного компьютера"
+        n = _takeback(meta)
+        log(f"забрал у {who} {n} файлов состояния")
+        notify("✅ MacBook снова в работе: данные облака забраны, облако остановлено" if meta.get("active") == "cloud"
+               else "✅ MacBook снова в работе: данные с резервного компьютера забраны, резервный остановлен")
     (BOT / ".primary_ok").touch()
     git("add", "-A")                                          # автосохранение кода
     if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=BOT).returncode != 0:
@@ -193,6 +192,13 @@ def sync_standby():
     if not meta:
         return
     if not active:
+        if meta.get("active") == "cloud":                       # работает облако — забираем к себе
+            n = _takeback(meta)
+            (BOT / ".standby_active").touch()
+            push_snapshot({"active": "standby"})
+            log(f"забрал работу у облака, состояние {n} файлов")
+            notify("🖥 Резервный компьютер забрал работу у облака")
+            return
         if meta.get("active") == "standby":                     # были в работе до перезагрузки
             (BOT / ".standby_active").touch()
             return
@@ -214,6 +220,111 @@ def sync_standby():
         log("MacBook вернулся — работу отдал")
     else:
         push_snapshot({"active": "standby"})
+
+
+def _takeback(meta):
+    """Попросить работу у того, кто сейчас работает, дождаться «освободил» (до TAKEBACK_WAIT) и забрать состояние."""
+    push_snapshot(dict(meta, request="takeback"), take_local=False)
+    deadline = time.time() + TAKEBACK_WAIT
+    while time.time() < deadline:
+        time.sleep(1 if TEST else 15)
+        if fetch_meta().get("active") == "released":
+            break
+    return restore()
+
+
+CLOUD_TAKEOVER_MIN = 25        # облако включается, если снимков нет дольше
+CLOUD_WORK_MIN = 28            # сколько минут работает один запуск облака
+CLOUD_CYCLE_SEC = 240          # пауза между циклами работы
+
+
+def cloud_check():
+    """Облако, быстрая проверка (только git): нужно ли работать. Пишет work=yes|no для GitHub Actions."""
+    meta = fetch_meta()
+    work = False
+    if meta.get("active") == "cloud" and meta.get("request") == "takeback":
+        push_snapshot({"active": "released"}, take_local=False)   # компьютер вернулся, облако не работало
+        log("компьютер просит работу — отдал")
+    elif meta:
+        stale = (time.time() - meta.get("time", 0)) / 60
+        work = meta.get("active") == "cloud" or stale >= CLOUD_TAKEOVER_MIN
+        log(f"последний снимок {stale:.0f} мин назад ({meta.get('active')}) — {'работаю' if work else 'компьютеры на связи'}")
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a") as fh:
+            fh.write(f"work={'yes' if work else 'no'}\n")
+    return work
+
+
+def _cloud_commands(cycle):
+    py = sys.executable
+    cmds = [[py, "post_schedule.py", "--live"], [py, "live_watcher.py", "--live"],
+            [py, "vk_to_tg_hockey_bot.py", "--once"]]
+    if cycle % 3 == 0:
+        cmds.append([py, "post_standings.py", "--live"])
+    if TEST:
+        cmds = [[py, "-c", "pass"] for _ in cmds]
+    return cmds
+
+
+def cloud_work():
+    """Облако, работа: ~CLOUD_WORK_MIN минут циклов, снимок после каждого; при просьбе — отдать работу."""
+    meta = fetch_meta()
+    first = meta.get("active") != "cloud"
+    n = restore()
+    log(f"облако в работе, состояние {n} файлов")
+    if first:
+        notify("☁️ MacBook и резервный компьютер молчат — работу продолжило облако (GitHub)")
+        push_snapshot({"active": "cloud"})
+    deadline = time.time() + (0.05 if TEST else CLOUD_WORK_MIN) * 60
+    cycle = 0
+    while True:
+        for cmd in _cloud_commands(cycle):
+            try:
+                subprocess.run(cmd, cwd=BOT, timeout=600)
+            except Exception as e:
+                log(f"{' '.join(cmd[1:])}: {e}")
+        cycle += 1
+        now = fetch_meta()
+        if now.get("request") == "takeback":
+            push_snapshot({"active": "released"})
+            log("компьютер вернулся — работу отдал")
+            return
+        push_snapshot({"active": "cloud"})
+        if time.time() + CLOUD_CYCLE_SEC > deadline:
+            return
+        time.sleep(CLOUD_CYCLE_SEC)
+
+
+def cloud_plan():
+    """Облако, утро: нужны ли сегодня дневные проверки. Пишет need=yes|no для GitHub Actions."""
+    from datetime import datetime as _dt, timedelta as _td
+    meta = fetch_meta()
+    need, why = False, "снимков нет"
+    if meta:
+        age_days = (time.time() - meta.get("time", 0)) / 86400
+        try:
+            fixtures = json.loads((STATE_DIR / "official_fixtures.json").read_text(encoding="utf-8"))
+        except Exception:
+            fixtures = []
+        dates = {f.get("date") for f in fixtures if isinstance(f, dict)}
+        today = _dt.now()
+        days = {today.strftime("%d.%m.%Y"), (today + _td(days=1)).strftime("%d.%m.%Y")}
+        games = sorted(d for d in dates if d in days)
+        if meta.get("active") == "cloud":
+            need, why = True, "облако сейчас в работе"
+        elif age_days > 2:
+            need, why = True, f"снимок старше 2 дней ({age_days:.0f} дн.) — расписание могло устареть"
+        elif games:
+            need, why = True, f"есть игры: {', '.join(games)}"
+        else:
+            why = "игр сегодня и завтра нет"
+    log(f"дневные проверки облака: {'ВКЛ' if need else 'выкл'} — {why}")
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a") as fh:
+            fh.write(f"need={'yes' if need else 'no'}\n")
+    return need
 
 
 def sync():
@@ -394,7 +505,8 @@ def status():
         print("снимков в GitHub ещё нет")
         return
     age = (time.time() - meta.get("time", 0)) / 60
-    who = {"primary": "MacBook (основной)", "standby": "резервный компьютер", "released": "передаётся MacBook"}
+    who = {"primary": "MacBook (основной)", "standby": "резервный компьютер", "released": "передаётся MacBook",
+           "cloud": "облако (GitHub)"}
     print(f"Сейчас работает: {who.get(meta.get('active'), meta.get('active'))}; последний снимок {age:.0f} мин назад"
           f" с компьютера {meta.get('host')}")
 
@@ -409,5 +521,11 @@ if __name__ == "__main__":
         sync()
     elif cmd == "status":
         status()
+    elif cmd == "cloud-check":
+        cloud_check()
+    elif cmd == "cloud-plan":
+        cloud_plan()
+    elif cmd == "cloud":
+        cloud_work()
     else:
         print(__doc__)

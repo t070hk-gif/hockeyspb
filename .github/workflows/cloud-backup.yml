@@ -1,0 +1,39 @@
+name: cloud-backup
+# Облачный резервный бот: работает, только если MacBook и резервный Mac молчат дольше 25 минут.
+on:
+  schedule:
+    - cron: "*/20 5-20 * * *"        # каждые 20 минут, 8:00–23:40 по Москве; включается утром, только в дни с играми
+  workflow_dispatch: {}
+concurrency:
+  group: cloud-backup
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TZ: Europe/Moscow
+      GH_BACKUP_REPO: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: code
+          fetch-depth: 1
+      - name: Нужно ли работать
+        id: check
+        run: |
+          printf '%s' "${{ secrets.VKBOT_KEY }}" > ~/.vkbot_key
+          chmod 600 ~/.vkbot_key
+          python3 gh_backup.py cloud-check
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.work == 'yes'
+        with:
+          python-version: "3.12"
+      - name: Работа вместо компьютеров
+        if: steps.check.outputs.work == 'yes'
+        run: |
+          sudo apt-get install -y -qq ffmpeg > /dev/null
+          python -m pip install -q requests Pillow imageio imageio-ffmpeg numpy
+          python gh_backup.py cloud

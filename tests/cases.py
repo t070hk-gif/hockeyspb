@@ -346,3 +346,20 @@ def test_junior_tournaments():
     from PIL import Image
     img = gb.make_banner("2012", None, "ТЕРРИТОРИЯ ХОККЕЯ U15")
     assert img.size == (1200, 260)
+
+
+def test_cloud_commands():
+    """Облако: VK-бот умеет один проход (--once), у резервирования есть режимы облака."""
+    src = (HERE / "vk_to_tg_hockey_bot.py").read_text(encoding="utf-8")
+    assert '"--once" in sys.argv' in src
+    gh = (HERE / "gh_backup.py").read_text(encoding="utf-8")
+    assert "def cloud_check" in gh and "def cloud_work" in gh and "def _takeback" in gh
+
+
+def test_cloud_plan():
+    """Облако: дневные проверки включаются только при играх сегодня/завтра или старом снимке."""
+    src = (HERE / "gh_backup.py").read_text(encoding="utf-8")
+    assert "def cloud_plan" in src and '"cloud-plan"' in src
+    root = next(p for p in (HERE, HERE.parent, HERE.parent.parent) if (p / ".github").exists())
+    wf = (root / ".github" / "workflows" / "cloud-daily.yml").read_text(encoding="utf-8")
+    assert "gh workflow enable cloud-backup.yml" in wf and "gh workflow disable cloud-backup.yml" in wf

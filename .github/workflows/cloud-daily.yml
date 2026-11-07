@@ -1,0 +1,31 @@
+name: cloud-daily
+# Каждое утро: есть ли игры сегодня или завтра. Есть — включает дневные проверки облака, нет — выключает.
+on:
+  schedule:
+    - cron: "0 4 * * *"              # 7:00 по Москве
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  actions: write
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TZ: Europe/Moscow
+      GH_BACKUP_REPO: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: code
+          fetch-depth: 1
+      - name: Есть ли игры
+        id: plan
+        run: python3 gh_backup.py cloud-plan
+      - name: Включить дневные проверки
+        if: steps.plan.outputs.need == 'yes'
+        run: gh workflow enable cloud-backup.yml --repo "${{ github.repository }}"
+      - name: Выключить дневные проверки до завтра
+        if: steps.plan.outputs.need != 'yes'
+        run: gh workflow disable cloud-backup.yml --repo "${{ github.repository }}"
