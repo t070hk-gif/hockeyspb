@@ -11,13 +11,13 @@ permissions:
   contents: write
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
       TZ: Europe/Moscow
       GH_BACKUP_REPO: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: code
           fetch-depth: 1
@@ -27,7 +27,7 @@ jobs:
           printf '%s' "${{ secrets.VKBOT_KEY }}" > ~/.vkbot_key
           chmod 600 ~/.vkbot_key
           python3 gh_backup.py cloud-check
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: steps.check.outputs.work == 'yes'
         with:
           python-version: "3.12"
