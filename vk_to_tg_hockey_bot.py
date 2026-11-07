@@ -18,6 +18,7 @@
 Настройки ниже (или через переменные окружения).
 """
 
+import sys
 import builtins
 import json
 import re
