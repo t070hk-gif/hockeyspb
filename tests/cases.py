@@ -390,3 +390,21 @@ def test_cloud_window():
     at = lambda h, m: g._cloud_window(_dt(2026, 11, 8, h, m))[0]
     assert not at(8, 30) and at(9, 5) and at(19, 25) and not at(19, 40) and at(22, 0)
     assert not g._cloud_window(_dt(2026, 11, 9, 12, 0))[0]          # в другой день игр нет
+
+
+def test_cloud_focus():
+    """Облако: только турниры с постами на вчера/сегодня/завтра; без CLOUD_FOCUS — все."""
+    import os as _os
+    from datetime import datetime as _dt
+    with quiet():
+        import post_schedule as ps
+    today = _dt.now().strftime("%d.%m.%Y")
+    ps.STATE_FILE.write_text(__import__("json").dumps({f"6577_Сб {today}": {}, "6573_Вс 01.01.2026": {}}), encoding="utf-8")
+    ps._CLOUD_ACTIVE = None
+    _os.environ.pop("CLOUD_FOCUS", None)
+    assert not ps._cloud_skip("6573")
+    _os.environ["CLOUD_FOCUS"] = "1"
+    now = _dt.now()
+    if not ((21, 50) <= (now.hour, now.minute) <= (22, 30)):
+        assert not ps._cloud_skip("6577") and ps._cloud_skip("6573")
+    _os.environ.pop("CLOUD_FOCUS", None)

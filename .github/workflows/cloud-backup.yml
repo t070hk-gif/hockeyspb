@@ -31,6 +31,8 @@ jobs:
         if: steps.check.outputs.work == 'yes'
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-cloud.txt
       - name: Работа вместо компьютеров
         if: steps.check.outputs.work == 'yes'
         env:
@@ -38,5 +40,5 @@ jobs:
         run: |
           md=$(date +%m%d)
           if [ "$md" -ge 1215 ] || [ "$md" -le 0110 ]; then sudo apt-get install -y -qq ffmpeg > /dev/null; fi
-          python -m pip install -q requests Pillow imageio imageio-ffmpeg numpy
+          python -m pip install -q -r requirements-cloud.txt
           python gh_backup.py cloud

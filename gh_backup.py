@@ -246,6 +246,10 @@ def cloud_check():
         push_snapshot({"active": "released"}, take_local=False)   # компьютер вернулся, облако не работало
         log("компьютер просит работу — отдал")
     mode = "full"
+    from datetime import datetime as _dtn
+    if _dtn.now().hour < 7 and meta and not (meta.get("active") == "cloud" and meta.get("request") == "takeback"):
+        log("ночь (до 7:00) — облако не работает")
+        meta = {}
     if meta and not (meta.get("active") == "cloud" and meta.get("request") == "takeback"):
         stale = (time.time() - meta.get("time", 0)) / 60
         full, why_window = _cloud_window()
@@ -293,7 +297,7 @@ def _cloud_commands(cycle):
     py = sys.executable
     cmds = [[py, "post_schedule.py", "--live"], [py, "live_watcher.py", "--live"],
             [py, "vk_to_tg_hockey_bot.py", "--once"]]
-    if cycle % 3 == 0:
+    if cycle % 6 == 0:                                   # таблицы — раз в ~24 минуты
         cmds.append([py, "post_standings.py", "--live"])
     if TEST:
         cmds = [[py, "-c", "pass"] for _ in cmds]
@@ -315,9 +319,10 @@ def cloud_work():
         log("вне игрового окна — один короткий цикл")
     cycle = 0
     while True:
+        cycle_start = time.time()
         for cmd in _cloud_commands(cycle):
             try:
-                subprocess.run(cmd, cwd=BOT, timeout=600)
+                subprocess.run(cmd, cwd=BOT, timeout=600, env=dict(os.environ, CLOUD_FOCUS="1"))
             except Exception as e:
                 log(f"{' '.join(cmd[1:])}: {e}")
         cycle += 1
@@ -329,7 +334,7 @@ def cloud_work():
         push_snapshot({"active": "cloud"})
         if time.time() + CLOUD_CYCLE_SEC > deadline:
             return
-        time.sleep(CLOUD_CYCLE_SEC)
+        time.sleep(max(0, CLOUD_CYCLE_SEC - (time.time() - cycle_start)))   # пауза — от начала цикла
 
 
 def cloud_plan():

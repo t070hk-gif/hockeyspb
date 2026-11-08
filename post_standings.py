@@ -315,6 +315,21 @@ LOCAL_LOGO_OVERRIDES = {
 }
 
 
+def _logo_bytes(url):
+    """Картинка логотипа по адресу — с диска (logo_cache/), иначе скачать и сохранить.
+    Папка уходит на GitHub с кодом, поэтому и облако не качает логотипы заново."""
+    import hashlib
+    cache_dir = Path(__file__).parent / "logo_cache"
+    path = cache_dir / (hashlib.md5(url.encode()).hexdigest() + ".img")
+    if path.exists() and path.stat().st_size > 0:
+        return path.read_bytes()
+    resp = requests.get(url, headers=HEADERS, timeout=10)
+    resp.raise_for_status()
+    cache_dir.mkdir(exist_ok=True)
+    path.write_bytes(resp.content)
+    return resp.content
+
+
 def _get_logo_image(team_name, logo_url):
     """Скачивает и кэширует логотип команды (в памяти процесса — таблица
     формируется одним прогоном, повторно скачивать одно и то же не нужно).
@@ -337,10 +352,8 @@ def _get_logo_image(team_name, logo_url):
         if local_filename:
             logo = Image.open(LOCAL_LOGOS_DIR / local_filename).convert("RGBA")
         elif logo_url:
-            resp = requests.get(logo_url, headers=HEADERS, timeout=10)
-            resp.raise_for_status()
             import io
-            logo = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+            logo = Image.open(io.BytesIO(_logo_bytes(logo_url))).convert("RGBA")   # с диска, если уже скачан
         if logo is not None:
             logo = logo.resize((LOGO_SIZE, LOGO_SIZE), Image.LANCZOS)
     except Exception:

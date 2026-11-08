@@ -91,7 +91,8 @@ def _logo(raw_name, size):
         else:
             url = st._load_logo_map().get(st._logo_key(raw_name))
             if url:
-                img = Image.open(io.BytesIO(requests.get(url, timeout=10).content)).convert("RGBA")
+                data = st._logo_bytes(url) if hasattr(st, "_logo_bytes") else requests.get(url, timeout=10).content
+                img = Image.open(io.BytesIO(data)).convert("RGBA")
         if img:
             img.thumbnail((size, size), Image.LANCZOS)
     except Exception:

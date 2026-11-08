@@ -1695,10 +1695,35 @@ def _spb_fallback_matches(age, group, tournament_type, tournament_id):
     return out
 
 
+def _cloud_skip(prefix):
+    """В облаке (CLOUD_FOCUS=1) — обрабатывать только турниры с постами на вчера/сегодня/завтра.
+    В 21:50–22:30 — все турниры, чтобы вышли посты на завтра. prefix — начало ключа поста
+    (номер турнира fhspb.ru или ключ турнира junior.fhr.ru)."""
+    if os.environ.get("CLOUD_FOCUS") != "1":
+        return False
+    now = datetime.now()
+    if (21, 50) <= (now.hour, now.minute) <= (22, 30):
+        return False
+    global _CLOUD_ACTIVE
+    if _CLOUD_ACTIVE is None:
+        days = {(now + timedelta(days=d)).strftime("%d.%m.%Y") for d in (-1, 0, 1)}
+        try:
+            keys = json.loads(STATE_FILE.read_text(encoding="utf-8")).keys()
+        except Exception:
+            keys = []
+        _CLOUD_ACTIVE = {k.split("_", 1)[0] for k in keys if any(d in k for d in days)}
+    return str(prefix) not in _CLOUD_ACTIVE
+
+
+_CLOUD_ACTIVE = None
+
+
 def process_tournament(age: str, group: str, tournament_type: str, tournament_id: int,
                         state: dict, video_index: dict, dry_run: bool, official_keys: set = None,
                         month: int = None, spb_session=None, spb_details_cache: dict = None,
                         live_cache: dict = None) -> None:
+    if _cloud_skip(str(tournament_id)):                    # облако: турнир без игр рядом — пропуск
+        return
     topic_id = TOPIC_IDS[age]
 
     _from_spb = False
@@ -1877,6 +1902,8 @@ def process_kubok_rossii(state: dict, dry_run: bool, spb_rossii_session=None,
 
 
 def _process_junior(cfg, state, dry_run, session, official_keys, spb_details_cache, video_index, live_cache):
+    if _cloud_skip(cfg["key"]):
+        return
     age, name, label = cfg["age"], cfg["name"], cfg["label"]
     topic_id = TOPIC_IDS[age]
     banner = BANNERS_DIR / cfg["banner"]
