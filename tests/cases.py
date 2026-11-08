@@ -363,3 +363,15 @@ def test_cloud_plan():
     root = next(p for p in (HERE, HERE.parent, HERE.parent.parent) if (p / ".github").exists())
     wf = (root / ".github" / "workflows" / "cloud-daily.yml").read_text(encoding="utf-8")
     assert "gh workflow enable cloud-backup.yml" in wf and "gh workflow disable cloud-backup.yml" in wf
+
+
+def test_typo_tolerant_match():
+    """Сопоставление прощает опечатку в названии, но не подменяет непохожие команды."""
+    import team_matcher as tm
+    d = "08.11.2026"
+    fx = {d: [{"date": d, "team1": "армия ска", "team2": "ска серебряные львы", "age": "10",
+               "key": f"{d}::армия ска|ска серебряные львы", "time": "13:45"}]}
+    r, why = tm.match_title('МАТЧ ХК "АРМИЯ СКА 2010" & ХК "СКА СЕРЕБРЧНЫЕ ЛЬВЫ 2010"', [d], fixtures=fx, alias_groups=[])
+    assert r and r["age"] == "10" and "опечатка" in why, why
+    r, why = tm.match_title('АРМИЯ СКА 2010 - СКА СТРЕЛЬНА 2010', [d], fixtures=fx, alias_groups=[])
+    assert r is None, r

@@ -371,6 +371,58 @@ def _minutes_from(fx: dict, start_dt) -> float:
 
 def match_title(title: str, date_candidates: list, fixtures: dict = None,
                 alias_groups: list = None, start_dt=None):
+    """Сопоставление; если не нашлось — повтор с исправленными опечатками в названиях команд."""
+    fx, why = _match_title_exact(title, date_candidates, fixtures, alias_groups, start_dt)
+    if fx is not None:
+        return fx, why
+    fixed, changes = _fix_typos(title, date_candidates, fixtures, alias_groups)
+    if not changes:
+        return fx, why
+    fx2, why2 = _match_title_exact(fixed, date_candidates, fixtures, alias_groups, start_dt)
+    if fx2 is None:
+        return fx, why
+    return fx2, f"{why2} (исправлена опечатка: {', '.join(changes)})"
+
+
+def _fix_typos(title, date_candidates, fixtures, alias_groups, min_ratio=0.84):
+    """Заменяет в заголовке слова-опечатки (от 6 букв) на похожие слова из названий команд этих дней."""
+    import difflib
+    if fixtures is None:
+        fixtures = load_fixtures()
+    vocab = set()
+    for d in date_candidates or []:
+        for f in fixtures.get(d, []):
+            for team in (f.get("team1", ""), f.get("team2", "")):
+                vocab.update(w for w in re.findall(r"[а-яё]+", team.lower()) if len(w) >= 5)
+    for group in alias_groups or []:
+        for name in group:
+            vocab.update(w for w in re.findall(r"[а-яё]+", name.lower()) if len(w) >= 5)
+    if not vocab:
+        return title, []
+    changes = []
+
+    def repl(m):
+        word = m.group(0)
+        low = word.lower().replace("ё", "е")
+        if len(low) < 6 or low in vocab:
+            return word
+        best, score = None, 0.0
+        for v in vocab:
+            if v[0] != low[0] or abs(len(v) - len(low)) > 2:
+                continue
+            r = difflib.SequenceMatcher(None, low, v).ratio()
+            if r > score:
+                best, score = v, r
+        if best and score >= min_ratio:
+            changes.append(f"{word}→{best}")
+            return best.upper() if word.isupper() else best
+        return word
+    fixed = re.sub(r"[А-Яа-яЁё]+", repl, title)
+    return fixed, changes
+
+
+def _match_title_exact(title: str, date_candidates: list, fixtures: dict = None,
+                       alias_groups: list = None, start_dt=None):
     """
     Возвращает (матч | None, причина).
     матч = {"date", "team1", "team2", "age", "key"} — ровно как в
