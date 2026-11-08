@@ -245,15 +245,48 @@ def cloud_check():
     if meta.get("active") == "cloud" and meta.get("request") == "takeback":
         push_snapshot({"active": "released"}, take_local=False)   # компьютер вернулся, облако не работало
         log("компьютер просит работу — отдал")
-    elif meta:
+    mode = "full"
+    if meta and not (meta.get("active") == "cloud" and meta.get("request") == "takeback"):
         stale = (time.time() - meta.get("time", 0)) / 60
-        work = meta.get("active") == "cloud" or stale >= CLOUD_TAKEOVER_MIN
-        log(f"последний снимок {stale:.0f} мин назад ({meta.get('active')}) — {'работаю' if work else 'компьютеры на связи'}")
+        full, why_window = _cloud_window()
+        mode = "full" if full else "light"
+        if meta.get("active") == "cloud":
+            # уже работаем: в игровое окно — полностью, вне окна — короткий цикл раз в час
+            work = full or stale >= 55
+        else:
+            work = stale >= CLOUD_TAKEOVER_MIN
+        state = "работаю" if work else ("компьютеры на связи" if meta.get("active") != "cloud" else "вне окна, жду часа")
+        log(f"последний снимок {stale:.0f} мин назад ({meta.get('active')}); {why_window} — {state}"
+            + (f", режим {'полный' if mode == 'full' else 'короткий'}" if work else ""))
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
         with open(out, "a") as fh:
-            fh.write(f"work={'yes' if work else 'no'}\n")
+            fh.write(f"work={'yes' if work else 'no'}\nmode={mode}\n")
     return work
+
+
+def _cloud_window(now=None):
+    """Игровое окно дня по расписанию из снимка: (полная работа?, пояснение)."""
+    from datetime import datetime as _dt, timedelta as _td
+    now = now or _dt.now()
+    if (now.hour, now.minute) >= (21, 50) and (now.hour, now.minute) <= (22, 30):
+        return True, "время поста на завтра"
+    try:
+        fixtures = json.loads((STATE_DIR / "official_fixtures.json").read_text(encoding="utf-8"))
+    except Exception:
+        return True, "расписания в снимке нет"
+    today = now.strftime("%d.%m.%Y")
+    times = []
+    for f in fixtures:
+        if isinstance(f, dict) and f.get("date") == today:
+            m = re.match(r"(\d{1,2}):(\d{2})", f.get("time") or "")
+            if m:
+                times.append(now.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0))
+    if not times:
+        return False, "сегодня игр нет"
+    start, end = min(times) - _td(hours=1), max(times) + _td(hours=3)
+    window = f"окно {start:%H:%M}–{end:%H:%M}"
+    return start <= now <= end, window
 
 
 def _cloud_commands(cycle):
@@ -276,7 +309,10 @@ def cloud_work():
     if first:
         notify("☁️ MacBook и резервный компьютер молчат — работу продолжило облако (GitHub)")
         push_snapshot({"active": "cloud"})
-    deadline = time.time() + (0.05 if TEST else CLOUD_WORK_MIN) * 60
+    light = os.environ.get("CLOUD_MODE") == "light"         # вне игрового окна — один цикл
+    deadline = time.time() + (0.05 if TEST or light else CLOUD_WORK_MIN) * 60
+    if light:
+        log("вне игрового окна — один короткий цикл")
     cycle = 0
     while True:
         for cmd in _cloud_commands(cycle):

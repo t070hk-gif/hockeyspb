@@ -33,7 +33,10 @@ jobs:
           python-version: "3.12"
       - name: Работа вместо компьютеров
         if: steps.check.outputs.work == 'yes'
+        env:
+          CLOUD_MODE: ${{ steps.check.outputs.mode }}
         run: |
-          sudo apt-get install -y -qq ffmpeg > /dev/null
+          md=$(date +%m%d)
+          if [ "$md" -ge 1215 ] || [ "$md" -le 0110 ]; then sudo apt-get install -y -qq ffmpeg > /dev/null; fi
           python -m pip install -q requests Pillow imageio imageio-ffmpeg numpy
           python gh_backup.py cloud

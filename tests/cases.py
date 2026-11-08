@@ -375,3 +375,18 @@ def test_typo_tolerant_match():
     assert r and r["age"] == "10" and "опечатка" in why, why
     r, why = tm.match_title('АРМИЯ СКА 2010 - СКА СТРЕЛЬНА 2010', [d], fixtures=fx, alias_groups=[])
     assert r is None, r
+
+
+def test_cloud_window():
+    """Облако: полная работа — от часа до первой игры до 3 часов после последней и 21:50–22:30."""
+    import gh_backup as g
+    import json as _json
+    from datetime import datetime as _dt
+    g.STATE_DIR = HERE / "_state_window"
+    g.STATE_DIR.mkdir(exist_ok=True)
+    d = "08.11.2026"
+    (g.STATE_DIR / "official_fixtures.json").write_text(_json.dumps(
+        [{"date": d, "time": "10:00"}, {"date": d, "time": "16:30"}]), encoding="utf-8")
+    at = lambda h, m: g._cloud_window(_dt(2026, 11, 8, h, m))[0]
+    assert not at(8, 30) and at(9, 5) and at(19, 25) and not at(19, 40) and at(22, 0)
+    assert not g._cloud_window(_dt(2026, 11, 9, 12, 0))[0]          # в другой день игр нет
