@@ -408,3 +408,16 @@ def test_cloud_focus():
     if not ((21, 50) <= (now.hour, now.minute) <= (22, 30)):
         assert not ps._cloud_skip("6577") and ps._cloud_skip("6573")
     _os.environ.pop("CLOUD_FOCUS", None)
+
+
+def test_year_in_team_name():
+    """«Локомотив-2004»: год в названии команды — часть названия, а «Динамо-2011» — год рождения."""
+    import team_matcher as tm
+    d = "09.11.2026"
+    fx = {d: [{"date": d, "team1": "локомотив 2004", "team2": "нефтехимик", "age": "11",
+               "key": f"{d}::локомотив 2004|нефтехимик", "time": "17:00"},
+              {"date": d, "team1": "динамо", "team2": "ска", "age": "11", "key": f"{d}::динамо|ска", "time": "13:30"}]}
+    r, _ = tm.match_title("Кубок России U16. «Локомотив-2004» - «Нефтехимик» | 9.11.2026 17:00", [d], fixtures=fx, alias_groups=[])
+    assert r and r["team1"] == "локомотив 2004"
+    r, _ = tm.match_title("ДИНАМО-2011 - СКА-2011", [d], fixtures=fx, alias_groups=[])
+    assert r and r["age"] == "11"

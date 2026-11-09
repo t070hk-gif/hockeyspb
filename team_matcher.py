@@ -67,7 +67,7 @@ _SEPARATORS_RE = re.compile(r"🆚|\bvs\b|&|/|\||—|–|×")
 _INNER_HYPHEN_RE = re.compile(r"(?<=[a-zа-я])-\s?(?=[a-zа-я])")
 _DATE_RE = re.compile(r"\b\d{1,2}\.\d{1,2}(?:\.\d{2,4})?\b")
 _TIME_OR_SCORE_RE = re.compile(r"\b\d{1,2}\s*:\s*\d{1,2}\b")
-_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+_YEAR_RE = re.compile(r"\b20(?:09|[1-3]\d)\b")   # годы рождения и дат; «Локомотив-2004», «СКА-1946» — часть названия
 _BIRTH_YEAR_RE = re.compile(r"\b20(09|1[0-8])\b")
 _NON_TOKEN_RE = re.compile(r"[^a-zа-я0-9|]+")
 _TWO_DIGIT_AGE_RE = re.compile(r"^(09|1[0-8])$")
@@ -88,6 +88,7 @@ def _prepare(text: str) -> str:
     t = _TIME_OR_SCORE_RE.sub(" ", t)
     t = _SEPARATORS_RE.sub(f" {SEP} ", t)
     t = _INNER_HYPHEN_RE.sub(" ", t)      # "динамо-юниор" -> "динамо юниор"
+    t = re.sub(r"(?<=[а-яa-z])-(?=(?:19|20)\d\d\b)", " ", t)   # "локомотив-2004" -> "локомотив 2004" (год в названии)
     t = t.replace("-", f" {SEP} ")         # оставшиеся дефисы — разделитель команд
     return t
 
