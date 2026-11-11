@@ -421,3 +421,15 @@ def test_year_in_team_name():
     assert r and r["team1"] == "локомотив 2004"
     r, _ = tm.match_title("ДИНАМО-2011 - СКА-2011", [d], fixtures=fx, alias_groups=[])
     assert r and r["age"] == "11"
+
+
+def test_federal_districts():
+    """«ЦФО-ЮФО», «Санкт-Петербург-УФО»: дефис у сокращения округа — разделитель; «СКА-ХКД» — одно название."""
+    import team_matcher as tm
+    d = "11.11.2026"
+    F = lambda a, b: {"date": d, "team1": a, "team2": b, "age": "12", "key": f"{d}::{a}|{b}", "time": "16:00"}
+    fx = {d: [F("центральный фо", "южный фо"), F("сб. санкт петербурга", "уральский фо"), F("ска хкд", "динамо")]}
+    al = [["центральный фо", "цфо"], ["южный фо", "юфо"], ["уральский фо", "уфо"], ["сб. санкт петербурга", "санкт петербург"]]
+    assert tm.match_title("Территория хоккея U15. ЦФО-ЮФО | 11.11.2026", [d], fixtures=fx, alias_groups=al)[0]
+    assert tm.match_title("Территория хоккея U15. Санкт-Петербург-УФО", [d], fixtures=fx, alias_groups=al)[0]
+    assert tm.match_title("СКА-ХКД 12 - Динамо 12", [d], fixtures=fx, alias_groups=al)[0]
