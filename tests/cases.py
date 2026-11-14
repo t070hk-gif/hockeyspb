@@ -433,3 +433,19 @@ def test_federal_districts():
     assert tm.match_title("Территория хоккея U15. ЦФО-ЮФО | 11.11.2026", [d], fixtures=fx, alias_groups=al)[0]
     assert tm.match_title("Территория хоккея U15. Санкт-Петербург-УФО", [d], fixtures=fx, alias_groups=al)[0]
     assert tm.match_title("СКА-ХКД 12 - Динамо 12", [d], fixtures=fx, alias_groups=al)[0]
+
+
+def test_cover_match():
+    """Обложка: из распознанного текста выбирается один матч (команды, год, дата, время)."""
+    import cover_ocr as c
+    import team_matcher as tm
+    lines = ["ПЕРВЕНСТВО САНЕТ- ПЕТЕРБУРГА", "BAPATH 14 =X СЕВЕРСТАЛЬ 14", "ПРЯМАЯ ТРАНСЛЯЦИЯ",
+             "ВАРЯГИ 14 =x СЕВЕРСТАЛЬ 14", "Череповец", "14.11.2026 ¢ 14:30", "АРЕНА ХОРС e ул. Ладожская 42/1"]
+    d = "14.11.2026"
+    fx = {d: [{"date": d, "team1": "варяги", "team2": "северсталь", "age": "14", "key": d + "::варяги|северсталь", "time": "14:30"},
+              {"date": d, "team1": "варяги", "team2": "северсталь", "age": "10", "key": d + "::варяги|северсталь", "time": "18:00"},
+              {"date": d, "team1": "альфа", "team2": "варяги", "age": "14", "key": d + "::альфа|варяги", "time": "10:00"}]}
+    r, why = c.match(lines, tm.match_title, fx, [], [])
+    assert r and r["age"] == "14" and r["team2"] == "северсталь", why
+    r, why = c.match(lines, tm.match_title, {"15.11.2026": fx[d]}, [], [])
+    assert r is None, why                          # дата на обложке другая — не привязываем

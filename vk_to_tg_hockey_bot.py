@@ -1492,7 +1492,41 @@ def _apply_group_hints(title: str, owner_id=None) -> str:
     return title
 
 
-def _match_video_to_fixture(title: str, upload_ts=None, live_start=None, owner_id=None):
+def _match_video_to_fixture(title: str, upload_ts=None, live_start=None, owner_id=None, video_id=None):
+    """Матч по заголовку; не нашёлся — по обложке видео (если передан video_id)."""
+    fx, why = _match_video_to_fixture_title(title, upload_ts, live_start, owner_id)
+    if fx is not None or not video_id:
+        return fx, why
+    try:
+        alt, alt_why = _match_by_cover(video_id, title, upload_ts, live_start)
+    except Exception as e:
+        print(f"[WARN] Обложка {video_id} не прочитана: {e}")
+        return fx, why
+    return (alt, alt_why) if alt else (fx, why)
+
+
+def _match_by_cover(full_id, title, upload_ts, live_start):
+    import cover_ocr
+    if not cover_ocr.available() or any(w in (title or "").lower() for w in team_matcher.REVIEW_WORDS):
+        return None, ""
+    token, _ = get_valid_access_token(load_tokens())
+    lines = cover_ocr.read_cover(full_id, token, VK_API_VERSION)
+    start_dt = datetime.fromtimestamp(live_start) if live_start else None
+    fx, why = cover_ocr.match(lines, team_matcher.match_title, _get_fixtures(),
+                              team_matcher.load_alias_groups(),
+                              team_matcher.build_date_candidates(title, live_start, upload_ts), start_dt)
+    if fx:
+        key = f'{fx["key"]}::{fx.get("age") or ""}'
+        print(f"[INFO] Видео {full_id} — {why}")
+        if cover_ocr.mark_notified(full_id, key):
+            send_admin_message(
+                f"🖼 Привязано по обложке: {fx['date']} {fx['team1']} — {fx['team2']}"
+                f" ({fx.get('age') or '?'} г.р.)\nЗаголовок: {title}\n{why}\n"
+                f"https://vk.com/video{full_id}")
+    return fx, why
+
+
+def _match_video_to_fixture_title(title: str, upload_ts=None, live_start=None, owner_id=None):
     title = _apply_group_hints(title, owner_id)
     dates = team_matcher.build_date_candidates(title, live_start, upload_ts)
     start_dt = datetime.fromtimestamp(live_start) if live_start else None
@@ -1647,7 +1681,7 @@ def _recheck_unresolved(state: dict) -> None:
             del queue[full_id]   # не наш матч (другой регион, студенты, другой вид спорта...)
             continue
         fx, reason = _match_video_to_fixture(item["title"], item.get("upload_ts"), item.get("live_start"),
-                                             owner_id=int(full_id.rsplit("_", 1)[0]))
+                                             owner_id=int(full_id.rsplit("_", 1)[0]), video_id=full_id)
         if fx:
             written = register_official_video(fx, f"https://vk.com/video{full_id}", item["title"])
             print(f'[OK] Из очереди: {fx["date"]} {fx["team1"]} — {fx["team2"]} '
@@ -1752,7 +1786,7 @@ def _sweep_unplaced(state: dict, group_id: int, unique_videos: dict, seen_ids: s
         swept[full_id] = now
         title = v.get("title", "")
         fx, reason = _match_video_to_fixture(title, v.get("date"), v.get("live_start_time"),
-                                             owner_id=v["owner_id"])
+                                             owner_id=v["owner_id"], video_id=full_id)
         if fx:
             written = register_official_video(fx, f"https://vk.com/video{full_id}", title)
             if written:
@@ -1995,7 +2029,8 @@ def check_groups_once(state: dict, access_token: str) -> None:
                                         live_start_time=live_start, extra_known_teams=extra_teams)
 
             # Этап 3: сначала ищем видео в официальном расписании дня.
-            fx, fx_reason = _match_video_to_fixture(title, upload_ts, live_start, owner_id=video["owner_id"])
+            fx, fx_reason = _match_video_to_fixture(title, upload_ts, live_start, owner_id=video["owner_id"],
+                                                    video_id=f'{video["owner_id"]}_{video["id"]}')
             if fx:
                 video_url = f"https://vk.com/video{video['owner_id']}_{video['id']}"
                 written = register_official_video(fx, video_url, title)

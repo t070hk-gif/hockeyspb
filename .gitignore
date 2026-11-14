@@ -33,3 +33,4 @@ banners_ny/
 backup/role
 .primary_ok
 .standby_active
+cover_ocr_cache.json
