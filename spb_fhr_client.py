@@ -67,7 +67,7 @@ TIME_RE = re.compile(r'<span class="time">\s*([\d:]+)\s*</span>')
 TEAM_RE = re.compile(r'<span class="team-title">\s*(.*?)\s*</span>', re.DOTALL)
 SCORE_RE = re.compile(r'<div class="cell score">\s*(.*?)\s*</div>', re.DOTALL)
 
-ROSSII_ROW_RE = re.compile(r'<tr>\s*(.*?)</tr>', re.DOTALL)
+ROSSII_ROW_RE = re.compile(r'<tr(?:\s[^>]*)?>\s*(.*?)</tr>', re.DOTALL)   # и <tr onclick=…> (плей-офф)
 ROSSII_GAME_ID_RE = re.compile(r'/games/(\d+)/')
 ROSSII_DATE_RE = re.compile(r'<span class="date">\s*([\d.]+)\s*</span>')
 ROSSII_TIME_RE = re.compile(r'<span class="time">\s*([\d:]+)')
