@@ -41,4 +41,5 @@ jobs:
           md=$(date +%m%d)
           if [ "$md" -ge 1215 ] || [ "$md" -le 0110 ]; then sudo apt-get install -y -qq ffmpeg > /dev/null; fi
           python -m pip install -q -r requirements-cloud.txt
+          sudo apt-get install -y -qq --no-install-recommends tesseract-ocr tesseract-ocr-rus > /dev/null || echo 'tesseract не установился — обложки не читаем'
           python gh_backup.py cloud
