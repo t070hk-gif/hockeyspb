@@ -1413,6 +1413,19 @@ def process_pending_friendly_matches(state: dict) -> None:
             continue
 
         video_url = f"https://vk.com/video{entry['owner_id']}_{entry['id']}"
+        try:       # день игры: ещё раз ищем официальный матч (заголовок + обложка)
+            fx, why = _match_video_to_fixture(f"{title} {parsed['date']}", None, None,
+                                              owner_id=entry["owner_id"],
+                                              video_id=f"{entry['owner_id']}_{entry['id']}")
+        except Exception as e:
+            fx, why = None, str(e)
+        if fx:
+            written = register_official_video(fx, video_url, title)
+            print(f"[OK] Отложенное видео {entry['id']} — официальный матч {fx['date']} "
+                  f"{fx['team1']} — {fx['team2']} ({fx.get('age') or '?'}), {why}"
+                  f"{'' if written else ', ссылка уже была'}: {title}")
+            save_state(state)
+            continue
         match_entry = {"teams": parsed["teams"], "age": parsed.get("age"),
                         "time": parsed.get("time"), "video_url": video_url}
         group_key = get_friendly_group_key(parsed.get("age"), parsed["date"])
