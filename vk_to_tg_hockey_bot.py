@@ -1743,7 +1743,7 @@ def _registered_video_ids() -> set:
     for day in _get_fixtures().values():
         for f in day:
             ages_by_key.setdefault(f["key"], set()).add(f.get("age"))
-    ids = set()
+    ids = {}                               # id видео -> заголовки, под которыми его привязали
     for k, entry in load_video_index().items():
         parts = k.split("::")
         ages = ages_by_key.get("::".join(parts[:2]))
@@ -1756,7 +1756,7 @@ def _registered_video_ids() -> set:
             continue                       # общий ключ, а пара играет в нескольких возрастах
         m = re.search(r"video(-?\d+)_(\d+)", entry.get("video_url", ""))
         if m:
-            ids.add(f"{m.group(1)}_{m.group(2)}")
+            ids.setdefault(f"{m.group(1)}_{m.group(2)}", set()).add((entry.get("title") or "").strip())
     return ids
 
 
@@ -1792,8 +1792,9 @@ def _sweep_unplaced(state: dict, group_id: int, unique_videos: dict, seen_ids: s
             continue
         if registered is None:
             registered = _registered_video_ids()
-        if full_id in registered:
-            continue
+        titles = registered.get(full_id)
+        if titles is not None and ("" in titles or (v.get("title") or "").strip() in titles):
+            continue                                  # привязано, заголовок с тех пор не менялся
 
         first_try = full_id not in swept
         swept[full_id] = now
