@@ -801,6 +801,7 @@ def parse_video_title(title: str, description: str = "", upload_timestamp: int =
         if not date_str and upload_timestamp:
             dt = datetime.fromtimestamp(upload_timestamp)
             date_str = dt.strftime("%d.%m.%Y")
+            result["date_source"] = "upload"      # дата игры неизвестна — взята дата загрузки
 
     result["date"] = date_str
     result["teams_verified"] = teams_verified
@@ -2065,6 +2066,18 @@ def check_groups_once(state: dict, access_token: str) -> None:
                 save_state(state)
                 continue
 
+            if parsed.get("date_source") == "upload" and video.get("live_status") == "started":
+                parsed["date"] = datetime.now().strftime("%d.%m.%Y")      # трансляция идёт — игра сегодня
+            elif parsed.get("date_source") == "upload" and video.get("live_status") == "upcoming":
+                # Анонс трансляции без даты игры: день неизвестен, товарищеским не публикуем.
+                # Видео не помечаем просмотренным — на каждом цикле оно проверяется заново
+                # (официальный матч, дата в заголовке, время начала трансляции).
+                undated = state.setdefault("_undated_announces", {})
+                if str(video["id"]) not in undated:
+                    undated[str(video["id"])] = int(time.time())
+                    print(f"[INFO] Видео {video['id']} — анонс без даты игры, жду дату или начало трансляции: {title}")
+                    save_state(state)
+                continue
             if not _is_today_or_past(parsed["date"]):
                 # Матч ещё впереди — не публикуем прямо сейчас, а
                 # откладываем до наступления самого дня игры. Видео при
