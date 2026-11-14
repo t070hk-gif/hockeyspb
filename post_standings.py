@@ -764,6 +764,13 @@ def _table_images(entry, state_key):
     return paths if all(p.exists() for p in paths) else []
 
 
+def _visible_standings(by_group):
+    """Только то, что видно на картинке: без ссылок на логотипы (они меняются при тех же логотипах)."""
+    keys = ("rank", "team", "games", "wins", "losses", "losses_ot", "losses_so", "points")
+    return {str(g): [[r.get(k) for k in keys] + [bool(r.get("logo_url"))] for r in rows]
+            for g, rows in by_group.items()}
+
+
 def _republish_table(entry, state_key, age, title):
     """Публикует таблицу заново (альбом или фото), закрепляет, убирает старые сообщения."""
     paths = _table_images(entry, state_key)
@@ -784,8 +791,14 @@ def process_tournament(age, tournament_type, tournament_slug, year_id, state, dr
 
     by_group = fetch_standings_by_group(tournament_slug, year_id)
     _remember_logos(by_group)
+    fell_back = False
     if tournament_slug == PERVENSTVO_SLUG:
+        spb_data = by_group
         by_group = fhspb_pervenstvo_standings(age, by_group)
+        fell_back = by_group is spb_data and age in FHSPB_PERVENSTVO
+        if fell_back and state.get(f"{tournament_slug}_{year_id}", {}).get("source") == "fhspb":
+            print(f"[INFO] {age}: fhspb.ru не ответил — оставляю опубликованную таблицу")
+            return
     # Группы без команд (матчей ещё не было) не показываем; если пусто
     # всё — таблицу не публикуем.
     by_group = {g: s for g, s in by_group.items() if s}
@@ -794,7 +807,7 @@ def process_tournament(age, tournament_type, tournament_slug, year_id, state, dr
 
     title = format_standings_title(age, tournament_type)
     state_key = f"{tournament_slug}_{year_id}"
-    fingerprint = json.dumps({"data": by_group, "overrides": NAME_DISPLAY_OVERRIDES,
+    fingerprint = json.dumps({"visible": _visible_standings(by_group), "overrides": NAME_DISPLAY_OVERRIDES,
                               "local_logos": LOCAL_LOGO_OVERRIDES, "festive": _festive_now()},
                              ensure_ascii=False, sort_keys=True)
 
@@ -805,6 +818,11 @@ def process_tournament(age, tournament_type, tournament_slug, year_id, state, dr
     same_shape = existing is not None and len(old_ids) == (len(groups) if album else 1)
 
     if same_shape and existing.get("fingerprint") == fingerprint:
+        return
+    if same_shape and str(existing.get("fingerprint", "")).startswith('{"data"'):
+        existing["fingerprint"] = fingerprint          # переход на новый отпечаток — без перерисовки
+        existing["source"] = "spb" if fell_back else "fhspb"
+        save_state(state)
         return
     label = ("НОВАЯ ТАБЛИЦА" if existing is None else
              "ОБНОВЛЕНИЕ ТАБЛИЦЫ" if same_shape else "ТАБЛИЦА ПО ГРУППАМ")
@@ -829,6 +847,7 @@ def process_tournament(age, tournament_type, tournament_slug, year_id, state, dr
             for i, (mid, path) in enumerate(zip(old_ids, paths)):
                 edit_photo(mid, path, caption=title if i == 0 else "")
             existing["fingerprint"] = fingerprint
+            existing["source"] = "spb" if fell_back else "fhspb"
             save_state(state)
             time.sleep(1)
             return
@@ -840,7 +859,8 @@ def process_tournament(age, tournament_type, tournament_slug, year_id, state, dr
     # Новая таблица, смена вида (одна картинка <-> альбом) или удалённое сообщение
     ids = send_album(topic_id, paths, title) if album else [send_photo(topic_id, paths[0], caption=title)]
     pin_message(ids[0])
-    entry = {"message_id": ids[0], "message_ids": ids, "fingerprint": fingerprint}
+    entry = {"message_id": ids[0], "message_ids": ids, "fingerprint": fingerprint,
+             "source": "spb" if fell_back else "fhspb"}
     if existing and existing.get("reposted_on"):
         entry["reposted_on"] = existing["reposted_on"]
     state[state_key] = entry
