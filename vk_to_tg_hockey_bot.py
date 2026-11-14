@@ -1725,7 +1725,15 @@ def _sweep_unplaced(state: dict, group_id: int, unique_videos: dict, seen_ids: s
 
     for vid, v in unique_videos.items():
         full_id = f'{v["owner_id"]}_{vid}'
-        if vid not in seen_ids or full_id in queue:
+        if full_id in queue:
+            q = queue[full_id]
+            if v.get("title") and v["title"] != q.get("title"):     # видео переименовали — берём новый заголовок
+                q["title"] = v["title"]
+                q["live_start"] = v.get("live_start_time") or q.get("live_start")
+                state["_unresolved_last_check"] = 0                 # перепроверить очередь на этом цикле
+                print(f'[INFO] Видео {full_id} переименовано, перепроверю: {v["title"]}')
+            continue
+        if vid not in seen_ids:
             continue
         if now - swept.get(full_id, 0) < SWEEP_RETRY_MIN * 60:
             continue                                  # проверяли недавно — ждём
