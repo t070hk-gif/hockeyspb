@@ -1134,6 +1134,12 @@ def process_admin_messages(admin_state: dict, access_token: str) -> None:
     for update in updates:
         admin_state["update_offset"] = update["update_id"] + 1
         message = update.get("message")
+        if (message and "pinned_message" in message
+                and str(message.get("chat", {}).get("id")) == str(TG_CHANNEL_ID)):
+            # служебное «… закрепил(а) сообщение» — убираем из группы
+            if delete_telegram_message(message["message_id"]):
+                print(f"[OK] Удалено уведомление о закреплении ({message['message_id']})")
+            continue
         if not message or message.get("from", {}).get("id") != ADMIN_TELEGRAM_USER_ID:
             continue
         text = message.get("text", "")
