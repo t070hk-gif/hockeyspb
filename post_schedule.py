@@ -691,7 +691,7 @@ def format_caption(date_label: str, matches: list, video_index: dict,
         live_marker = ""
         if not effective_score:
             if is_live_now:
-                live_marker = " <b>LIVE</b>"
+                live_marker = " 🔴 <b>LIVE</b>"
             elif is_match_probably_over(date_label, m["time"]):
                 # Больше GAME_DURATION с начала — вероятно, игра уже
                 # закончилась, просто результат ещё нигде не появился.
