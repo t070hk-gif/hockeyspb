@@ -1,0 +1,277 @@
+{
+ "groups": [
+  {
+   "id": 114375744,
+   "name": "FILMING24SPORT",
+   "screen_name": "filming24sport",
+   "url": "https://vk.com/filming24sport",
+   "members": 3348,
+   "rossii_only": false,
+   "videos": 481,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": []
+  },
+  {
+   "id": 211881014,
+   "name": "Видео Тандем",
+   "screen_name": "spb_videotandem",
+   "url": "https://vk.com/spb_videotandem",
+   "members": 8826,
+   "rossii_only": false,
+   "videos": 470,
+   "youtube": [
+    "https://youtube.com/c/VideoTandem_"
+   ],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": [
+    "Видео Тандем"
+   ]
+  },
+  {
+   "id": 214108632,
+   "name": "PRO Video",
+   "screen_name": "pro_videospb",
+   "url": "https://vk.com/pro_videospb",
+   "members": 6014,
+   "rossii_only": false,
+   "videos": 399,
+   "youtube": [
+    "https://www.youtube.com/c/PROVIDEOSPB"
+   ],
+   "rutube": [],
+   "youtube_connected": [
+    "PRO VIDEO"
+   ],
+   "rutube_connected": [
+    "Pro Video"
+   ]
+  },
+  {
+   "id": 165020927,
+   "name": "Комментатор Никита Фомин",
+   "screen_name": "sportfomin",
+   "url": "https://vk.com/sportfomin",
+   "members": 13109,
+   "rossii_only": true,
+   "videos": 378,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": []
+  },
+  {
+   "id": 99334801,
+   "name": "Про_Хоккей",
+   "screen_name": "pro_hokey",
+   "url": "https://vk.com/pro_hokey",
+   "members": 10121,
+   "rossii_only": false,
+   "videos": 238,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": [
+    "PRO HOCKEY | ПРО ХОККЕЙ | НХЛ | КХЛ"
+   ]
+  },
+  {
+   "id": 133823152,
+   "name": "Детско-юношеский Хоккей России",
+   "screen_name": "fhr_youth",
+   "url": "https://vk.com/fhr_youth",
+   "members": 29626,
+   "rossii_only": true,
+   "videos": 234,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": []
+  },
+  {
+   "id": 227371906,
+   "name": "ХК \"СКА-СТРЕЛЬНА\"",
+   "screen_name": "club227371906",
+   "url": "https://vk.com/club227371906",
+   "members": 2858,
+   "rossii_only": false,
+   "videos": 183,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": []
+  },
+  {
+   "id": 120045135,
+   "name": "Хоккейный клуб «Колпино»",
+   "screen_name": "hckolpino",
+   "url": "https://vk.com/hckolpino",
+   "members": 4233,
+   "rossii_only": false,
+   "videos": 145,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": []
+  },
+  {
+   "id": 219803675,
+   "name": "ГБУ ДО СШ №2 Фрунзенского р-на Санкт-Петербурга",
+   "screen_name": "gbush2",
+   "url": "https://vk.com/gbush2",
+   "members": 3540,
+   "rossii_only": false,
+   "videos": 141,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": []
+  },
+  {
+   "id": 136729253,
+   "name": "Media Sport Group",
+   "screen_name": "mediasportgroup",
+   "url": "https://vk.com/mediasportgroup",
+   "members": 5996,
+   "rossii_only": false,
+   "videos": 140,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": [
+    "MEDIA SPORT GROUP"
+   ]
+  },
+  {
+   "id": 210582936,
+   "name": "SWAN'S",
+   "screen_name": "swans_team",
+   "url": "https://vk.com/swans_team",
+   "members": 3479,
+   "rossii_only": false,
+   "videos": 133,
+   "youtube": [
+    "https://www.youtube.com/channel/UCXQ29pG0o5vJO3xbkAJxS4g"
+   ],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": [
+    "Swan'S"
+   ]
+  },
+  {
+   "id": 226770005,
+   "name": "WonderLives",
+   "screen_name": "wonderlives",
+   "url": "https://vk.com/wonderlives",
+   "members": 401,
+   "rossii_only": false,
+   "videos": 118,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": []
+  },
+  {
+   "id": 110125126,
+   "name": "Детский хоккейный клуб Легион | СПб ЮГ",
+   "screen_name": "skalegion",
+   "url": "https://vk.com/skalegion",
+   "members": 5624,
+   "rossii_only": false,
+   "videos": 75,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": []
+  },
+  {
+   "id": 27313226,
+   "name": "ХК «ВАРЯГИ»",
+   "screen_name": "variagi",
+   "url": "https://vk.com/variagi",
+   "members": 6759,
+   "rossii_only": false,
+   "videos": 70,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": [
+    "ХК ВАРЯГИ"
+   ]
+  },
+  {
+   "id": 25510790,
+   "name": "Хоккей России",
+   "screen_name": "fhr",
+   "url": "https://vk.com/fhr",
+   "members": 294924,
+   "rossii_only": true,
+   "videos": 67,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": []
+  },
+  {
+   "id": 227274350,
+   "name": "Ingvarvid",
+   "screen_name": "club227274350",
+   "url": "https://vk.com/club227274350",
+   "members": 321,
+   "rossii_only": false,
+   "videos": 22,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": []
+  },
+  {
+   "id": 26864924,
+   "name": "Студия «2V» ОНЛАЙН - ТРАНСЛЯЦИИ СПОРТА",
+   "screen_name": "vstudio2v",
+   "url": "https://vk.com/vstudio2v",
+   "members": 1248,
+   "rossii_only": false,
+   "videos": 18,
+   "youtube": [],
+   "rutube": [],
+   "youtube_connected": [],
+   "rutube_connected": []
+  }
+ ],
+ "youtube_channels": [
+  {
+   "name": "PRO VIDEO",
+   "channel_id": "UCbGF5h1ckLpzcOmGNvOWi2Q"
+  }
+ ],
+ "rutube_channels": [
+  {
+   "name": "Swan'S",
+   "id": "24817889"
+  },
+  {
+   "name": "Видео Тандем",
+   "id": "44836015"
+  },
+  {
+   "name": "PRO HOCKEY | ПРО ХОККЕЙ | НХЛ | КХЛ",
+   "id": "75184074"
+  },
+  {
+   "name": "MEDIA SPORT GROUP",
+   "id": "24171651"
+  },
+  {
+   "name": "Pro Video",
+   "id": "19961107"
+  },
+  {
+   "name": "ХК ВАРЯГИ",
+   "id": "46003523"
+  }
+ ]
+}
