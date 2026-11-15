@@ -48,7 +48,7 @@ else:
     T.write_text(c, encoding="utf-8")
     print("cover_ocr.py: год рождения проверяется обязательно")
 
-YR = re.compile(r"(?<!\d)20(09|1\d)(?!\d)")
+YR = re.compile(r"(?<!\d)20(09|1\d)(?![\d-])")   # «2011-12 г.р.» — два года, не трогаем
 for name, seen_name in (("video_index.json", None), ("rutube_index.json", "rutube_seen.json"),
                         ("youtube_index.json", "youtube_seen.json")):
     p = BASE / name
