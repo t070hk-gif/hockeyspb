@@ -591,10 +591,11 @@ def _details_retry_mark(game_id):
         pass
 
 
-def _youtube_url(date_label, team1, team2, age, rossii=False):
-    """Ссылка на видео матча на YouTube (youtube_watch.py) или None."""
+def _youtube_url(date_label, team1, team2, age, rossii=False, module="youtube_watch"):
+    """Ссылка на видео матча на YouTube / RUTUBE (youtube_watch.py, rutube_watch.py) или None."""
     try:
-        import youtube_watch
+        import importlib
+        youtube_watch = importlib.import_module(module)
     except Exception:
         return None
     d = plain_date(date_label)
@@ -648,6 +649,9 @@ def format_caption(date_label: str, matches: list, video_index: dict,
         yt_url = _youtube_url(date_label, m["team1"], m["team2"], age, is_rossii_domain)
         if yt_url:
             team_line += f"\n▶️ <a href=\"{yt_url}\">Смотреть на YouTube</a>"
+        rt_url = _youtube_url(date_label, m["team1"], m["team2"], age, is_rossii_domain, "rutube_watch")
+        if rt_url:
+            team_line += f"\n▶️ <a href=\"{rt_url}\">Смотреть на RUTUBE</a>"
 
         # Ищем этот же матч в данных spb.fhr.ru (по нормализованным именам
         # команд + дате) — если найден, используем его game_id для ссылки
@@ -2032,6 +2036,11 @@ def _run(args) -> None:
         youtube_watch.refresh()
     except Exception as e:
         print(f"[WARN] YouTube: {e}")
+    try:                                       # RUTUBE-каналы: так же, не чаще раза в 10 минут
+        import rutube_watch
+        rutube_watch.refresh()
+    except Exception as e:
+        print(f"[WARN] RUTUBE: {e}")
     official_keys = set()
     spb_details_cache = load_spb_details_cache()
     globals()["_RESULTS_DETAILS_CACHE"] = spb_details_cache   # голы для баннера с результатами
