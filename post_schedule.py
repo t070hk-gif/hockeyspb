@@ -591,6 +591,23 @@ def _details_retry_mark(game_id):
         pass
 
 
+def _youtube_url(date_label, team1, team2, age, rossii=False):
+    """Ссылка на видео матча на YouTube (youtube_watch.py) или None."""
+    try:
+        import youtube_watch
+    except Exception:
+        return None
+    d = plain_date(date_label)
+    keys = [build_match_key(d, team1, team2)]
+    if rossii:
+        keys.insert(0, build_match_key_rossii(d, team1, team2))
+    for key in keys:
+        url = youtube_watch.url_for(key, age)
+        if url:
+            return url
+    return None
+
+
 def format_caption(date_label: str, matches: list, video_index: dict,
                     spb_lookup: dict = None, spb_session=None,
                     spb_details_cache: dict = None, domain: str = "spb.fhr.ru",
@@ -628,6 +645,9 @@ def format_caption(date_label: str, matches: list, video_index: dict,
             team_line = f"📺 <a href=\"{video_url}\">{m['team1']} - {m['team2']}</a>"
         else:
             team_line = f"📺 {m['team1']} - {m['team2']}"
+        yt_url = _youtube_url(date_label, m["team1"], m["team2"], age, is_rossii_domain)
+        if yt_url:
+            team_line += f"\n▶️ <a href=\"{yt_url}\">Смотреть на YouTube</a>"
 
         # Ищем этот же матч в данных spb.fhr.ru (по нормализованным именам
         # команд + дате) — если найден, используем его game_id для ссылки
@@ -2007,6 +2027,11 @@ def _run(args) -> None:
     dry_run = not args.live
     state = load_state()
     video_index = load_video_index()
+    try:                                       # YouTube-каналы: не чаще раза в 10 минут
+        import youtube_watch
+        youtube_watch.refresh()
+    except Exception as e:
+        print(f"[WARN] YouTube: {e}")
     official_keys = set()
     spb_details_cache = load_spb_details_cache()
     globals()["_RESULTS_DETAILS_CACHE"] = spb_details_cache   # голы для баннера с результатами
