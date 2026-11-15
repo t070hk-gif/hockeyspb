@@ -99,7 +99,7 @@ def match_by_cover(image_url, title, dates, ts, fixtures, aliases, cached_lines=
         except Exception as e:
             print(f"[WARN] обложка не прочитана ({e}): {title}")
             return None, "", None
-    fx, why = cover_ocr.match(lines, tm.match_title, fixtures, aliases, dates, datetime.fromtimestamp(ts))
+    fx, why = cover_ocr.match(lines, tm.match_title, fixtures, aliases, dates, datetime.fromtimestamp(ts), title=title)
     return fx, why, lines
 
 

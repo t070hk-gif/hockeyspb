@@ -26,7 +26,9 @@ CACHE_FILE = BASE / "cover_ocr_cache.json"
 RECHECK_HOURS = 6          # не чаще: проверить, не сменили ли обложку
 CACHE_MAX = 3000
 
-_DATE_RE = re.compile(r"(?<!\d)(\d{1,2})[./](\d{1,2})[./](20\d{2})(?!\d)")
+_DATE_RE = re.compile(r"(?<!\d)(\d{1,2})[./](\d{1,2})[./]((?:20)?\d{2})(?!\d)")
+_YEAR_RE = re.compile(r"(?<!\d)(20[01]\d)\s*(?:г\.?\s*р|г\.р|года?\s+рожд)", re.I)
+_TIME_LINE_RE = re.compile(r"^\W*([01]?\d|2[0-3])[:.]([0-5]\d)\W*$")
 _TIME_RE = re.compile(r"(?<!\d)([01]?\d|2[0-3])[:.]([0-5]\d)(?![\d.])")
 _WORD_RE = re.compile(r"[А-ЯЁа-яё]{3,}")
 # разделители команд на обложках: «=x», «х», «×», «vs», «:» между словами
@@ -123,7 +125,7 @@ def dates_in(lines) -> list:
     for line in lines:
         for d, m, y in _DATE_RE.findall(line):
             if 1 <= int(d) <= 31 and 1 <= int(m) <= 12:
-                s = f"{int(d):02d}.{int(m):02d}.{y}"
+                s = f"{int(d):02d}.{int(m):02d}.{y if len(y) == 4 else '20' + y}"
                 if s not in out:
                     out.append(s)
     return out
@@ -135,7 +137,18 @@ def time_in(lines):
             m = _TIME_RE.search(_DATE_RE.sub(" ", line))
             if m:
                 return f"{int(m.group(1)):02d}:{m.group(2)}"
+    if dates_in(lines):                      # время отдельной строкой рядом с датой
+        for line in lines:
+            m = _TIME_LINE_RE.match(line)
+            if m:
+                return f"{int(m.group(1)):02d}:{m.group(2)}"
     return None
+
+
+def year_in(lines):
+    """Год рождения с обложки («СРЕДИ КОМАНД 2015 Г.Р.»), если он один."""
+    years = {m for line in lines for m in _YEAR_RE.findall(line)}
+    return years.pop() if len(years) == 1 else None
 
 
 def _clean(line: str) -> str:
@@ -153,8 +166,34 @@ def candidates(lines) -> list:
     return out
 
 
-def match(lines, match_title, fixtures, alias_groups, fallback_dates, start_dt=None):
-    """(матч | None, пояснение). Матч — только если все варианты с обложки указывают на один."""
+def match(lines, match_title, fixtures, alias_groups, fallback_dates, start_dt=None, title=None):
+    """(матч | None, пояснение). Сначала команды с обложки; не вышло — заголовок + год/дата/время с обложки."""
+    fx, why = _match_teams(lines, match_title, fixtures, alias_groups, fallback_dates, start_dt)
+    if fx or not title or not lines:
+        return fx, why
+    year, hm, dates = year_in(lines), time_in(lines), dates_in(lines)
+    if not (year or hm):
+        return fx, why
+    t = title
+    if year and not re.search(r"(?<!\d)20[01]\d(?!\d)", title):
+        t += f" {year} г.р."
+    if hm:
+        t += f" {hm}"
+    sd = start_dt
+    if dates and hm:
+        from datetime import datetime
+        try:
+            sd = datetime.strptime(f"{dates[0]} {hm}", "%d.%m.%Y %H:%M")
+        except ValueError:
+            pass
+    fx2, _ = match_title(t, dates or list(fallback_dates or []), fixtures=fixtures,
+                         alias_groups=alias_groups, start_dt=sd)
+    if fx2:
+        return fx2, "по заголовку и обложке: " + ", ".join(x for x in (year and f"{year} г.р.", hm) if x)
+    return fx, why
+
+
+def _match_teams(lines, match_title, fixtures, alias_groups, fallback_dates, start_dt=None):
     if not lines:
         return None, "на обложке нет текста"
     dates = dates_in(lines) or list(fallback_dates or [])

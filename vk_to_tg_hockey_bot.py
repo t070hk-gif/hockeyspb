@@ -1533,7 +1533,8 @@ def _match_by_cover(full_id, title, upload_ts, live_start):
     start_dt = datetime.fromtimestamp(live_start) if live_start else None
     fx, why = cover_ocr.match(lines, team_matcher.match_title, _get_fixtures(),
                               team_matcher.load_alias_groups(),
-                              team_matcher.build_date_candidates(title, live_start, upload_ts), start_dt)
+                              team_matcher.build_date_candidates(title, live_start, upload_ts), start_dt,
+                              title=title)
     if fx:
         key = f'{fx["key"]}::{fx.get("age") or ""}'
         print(f"[INFO] Видео {full_id} — {why}")
