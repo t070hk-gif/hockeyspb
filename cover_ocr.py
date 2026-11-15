@@ -168,10 +168,18 @@ def candidates(lines) -> list:
 
 def match(lines, match_title, fixtures, alias_groups, fallback_dates, start_dt=None, title=None):
     """(матч | None, пояснение). Сначала команды с обложки; не вышло — заголовок + год/дата/время с обложки."""
-    fx, why = _match_teams(lines, match_title, fixtures, alias_groups, fallback_dates, start_dt)
+    cover_year = year_in(lines or [])
+    ty = re.search(r"(?<!\d)(20(?:09|1\d))(?!\d)", title or "")
+    title_year = ty.group(1) if ty else None
+    if cover_year and title_year and cover_year != title_year:
+        return None, f"год в заголовке {title_year}, на обложке {cover_year} — не привязываю"
+    want = cover_year or title_year
+    fx, why = _match_teams(lines, match_title, fixtures, alias_groups, fallback_dates, start_dt, want)
+    if fx and want and fx.get("age") and fx["age"] != want[-2:]:
+        fx, why = None, f"год {want}, а найденный матч — {fx['age']} г.р."
     if fx or not title or not lines:
         return fx, why
-    year, hm, dates = year_in(lines), time_in(lines), dates_in(lines)
+    year, hm, dates = cover_year, time_in(lines), dates_in(lines)
     if not (year or hm):
         return fx, why
     t = title
@@ -193,7 +201,7 @@ def match(lines, match_title, fixtures, alias_groups, fallback_dates, start_dt=N
     return fx, why
 
 
-def _match_teams(lines, match_title, fixtures, alias_groups, fallback_dates, start_dt=None):
+def _match_teams(lines, match_title, fixtures, alias_groups, fallback_dates, start_dt=None, year=None):
     if not lines:
         return None, "на обложке нет текста"
     dates = dates_in(lines) or list(fallback_dates or [])
@@ -208,6 +216,8 @@ def _match_teams(lines, match_title, fixtures, alias_groups, fallback_dates, sta
             pass
     found = {}
     for cand in candidates(lines):
+        if year and not re.search(r"(?<!\d)20(?:09|1\d)(?!\d)", cand):
+            cand = f"{cand} {year} г.р."           # год с обложки/заголовка — к командам
         fx, _ = match_title(cand + (f" {hm}" if hm else ""), dates, fixtures=fixtures,
                             alias_groups=alias_groups, start_dt=start_dt)
         if fx:
