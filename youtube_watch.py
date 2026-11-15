@@ -88,6 +88,11 @@ def refresh(force=False, verbose=False):
         return 0
     seen["_last_refresh"] = time.time()
     import team_matcher as tm
+    try:
+        import rutube_watch as _rw
+        _rw._covers_left[0] = _rw.COVERS_PER_RUN
+    except Exception:
+        pass
     fixtures, aliases = tm.load_fixtures(), tm.load_alias_groups()
     index = _read(INDEX_FILE, {})
     added = 0
@@ -103,6 +108,13 @@ def refresh(force=False, verbose=False):
                 continue                               # уже привязано / давно и не подошло
             fx, why = match_video(title, ts, fixtures, aliases)
             item = {"title": title, "ts": ts, "channel": ch.get("name")}
+            if not fx:                                # заголовка не хватило — читаем обложку
+                import rutube_watch as _rw
+                fx2, why2, item["cover"] = _rw.match_by_cover(
+                    f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg", title,
+                    tm.build_date_candidates(title, None, ts), ts, fixtures, aliases, (old or {}).get("cover"))
+                if fx2:
+                    fx, why = fx2, why2
             if fx:
                 key = f'{fx["key"]}::{fx.get("age") or ""}'
                 item["key"] = key

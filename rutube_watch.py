@@ -26,6 +26,8 @@ INDEX_FILE = BASE / "rutube_index.json"           # "ключ::возраст" -
 SEEN_FILE = BASE / "rutube_seen.json"
 REFRESH_MIN = 10
 RECHECK_DAYS = 7
+COVERS_PER_RUN = 6                                # не больше обложек за прогон (распознавание ~3 с)
+_covers_left = [COVERS_PER_RUN]
 DEFAULT_CHANNELS = [{"name": "Swan'S", "id": "24817889"}, {"name": "канал 44836015", "id": "44836015"},
                     {"name": "канал 75184074", "id": "75184074"}]
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36",
@@ -74,8 +76,31 @@ def fetch_channel(channel_id):
             continue
         url = it.get("video_url") or f"https://rutube.ru/video/{vid}/"
         author = (it.get("author") or {}).get("name")
-        out.append((vid, it.get("title") or "", _ts(it), url, author))
+        out.append((vid, it.get("title") or "", _ts(it), url, author, it.get("thumbnail_url")))
     return out
+
+
+def match_by_cover(image_url, title, dates, ts, fixtures, aliases, cached_lines=None):
+    """Не хватило заголовка — читаем обложку (cover_ocr.py). (матч, пояснение, строки обложки)."""
+    try:
+        import cover_ocr
+        import team_matcher as tm
+    except Exception:
+        return None, "", None
+    if not cover_ocr.available() or any(w in title.lower() for w in tm.REVIEW_WORDS):
+        return None, "", cached_lines
+    lines = cached_lines
+    if lines is None:
+        if _covers_left[0] <= 0:
+            return None, "", None                 # лимит прогона — прочитаем в следующий раз
+        _covers_left[0] -= 1
+        try:
+            lines = cover_ocr.ocr_lines(requests.get(image_url, headers=UA, timeout=30).content)
+        except Exception as e:
+            print(f"[WARN] обложка не прочитана ({e}): {title}")
+            return None, "", None
+    fx, why = cover_ocr.match(lines, tm.match_title, fixtures, aliases, dates, datetime.fromtimestamp(ts))
+    return fx, why, lines
 
 
 def refresh(force=False, verbose=False):
@@ -83,6 +108,7 @@ def refresh(force=False, verbose=False):
     if not force and time.time() - seen.get("_last_refresh", 0) < REFRESH_MIN * 60:
         return 0
     seen["_last_refresh"] = time.time()
+    _covers_left[0] = COVERS_PER_RUN
     import team_matcher as tm
     fixtures, aliases = tm.load_fixtures(), tm.load_alias_groups()
     index = _read(INDEX_FILE, {})
@@ -97,13 +123,19 @@ def refresh(force=False, verbose=False):
             continue
         if items and items[0][4] and ch.get("name", "").startswith("канал "):
             ch["name"], renamed = items[0][4], True
-        for vid, title, ts, url, _ in items:
+        for vid, title, ts, url, _, thumb in items:
             old = seen.get(vid)
             if old and (old.get("key") or time.time() - ts > RECHECK_DAYS * 86400) and old.get("title") == title:
                 continue
-            fx, why = tm.match_title(title, tm.build_date_candidates(title, ts, None), fixtures=fixtures,
+            dates = tm.build_date_candidates(title, ts, None)
+            fx, why = tm.match_title(title, dates, fixtures=fixtures,
                                      alias_groups=aliases, start_dt=datetime.fromtimestamp(ts))
             item = {"title": title, "ts": ts, "channel": ch.get("name")}
+            if not fx and thumb:                      # заголовка не хватило — читаем обложку
+                fx2, why2, item["cover"] = match_by_cover(thumb, title, dates, ts, fixtures, aliases,
+                                                          (old or {}).get("cover"))
+                if fx2:
+                    fx, why = fx2, why2
             if fx:
                 key = f'{fx["key"]}::{fx.get("age") or ""}'
                 item["key"] = key
