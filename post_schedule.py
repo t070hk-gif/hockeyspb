@@ -760,6 +760,8 @@ def format_caption(date_label: str, matches: list, video_index: dict,
                     # что-то уже есть — показываем это, не оставляем пусто.
                     periods_breakdown = cached
 
+        if is_live_now and periods_breakdown and spb_match:
+            _log_live_goals(spb_match, m, periods_breakdown, date_label)
         live_score_line_text = None                # live-счёт — на баннере, не в тексте
         if live_score_line:
             _LIVE_SCORES[spb_key] = live_score_line
@@ -1280,6 +1282,39 @@ SPB_MANUAL_GROUPS = {"24813590": ["25856129", "25856164"]}   # у 2017 кноп�
 SPB_GROUPS_CACHE_FILE = Path(__file__).parent / "spb_groups_cache.json"
 _RESULTS_DETAILS_CACHE = {}
 _LIVE_SCORES = {}        # ключ матча -> live-счёт (для баннера)
+GOALS_LOG_FILE = Path(__file__).parent / "live_goals_log.jsonl"
+_GOALS_SEEN = None
+
+
+def _log_live_goals(spb_match, m, breakdown, date_label):
+    """Записывает время, когда бот впервые увидел каждый гол (для проверки задержки)."""
+    global _GOALS_SEEN
+    if _GOALS_SEEN is None:
+        _GOALS_SEEN = set()
+        try:
+            for line in GOALS_LOG_FILE.read_text(encoding="utf-8").splitlines()[-3000:]:
+                _GOALS_SEEN.add(json.loads(line)["id"])
+        except Exception:
+            pass
+    new = []
+    for period in breakdown:
+        label = period.get("label") or f"{period.get('period_number', '?')}-й период"
+        for tg in period.get("team_goals", []):
+            for g in tg.get("goals", []):
+                gid = f"{spb_match['game_id']}|{label}|{g.get('minute')}|{g.get('number')}"
+                if gid in _GOALS_SEEN:
+                    continue
+                _GOALS_SEEN.add(gid)
+                new.append({"id": gid, "seen": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+                            "date": plain_date(date_label), "start": m.get("time"),
+                            "match": f"{m['team1']} — {m['team2']}", "team": tg.get("name"),
+                            "period": label, "minute": g.get("minute"),
+                            "player": f"{g.get('number')}.{g.get('player')}",
+                            "score": period.get("score")})
+    if new:
+        with open(GOALS_LOG_FILE, "a", encoding="utf-8") as fh:
+            for rec in new:
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
 _LIVE_BREAKDOWN = {}     # game_id -> голы по ходу матча (для баннера)
 _SPB_GROUP_LINK_RE = re.compile(r'data-ajax-link="([^"]+)">\s*Группа\s*[А-ЯA-Z0-9]+\s*</div>')
 _SPB_ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.S)
