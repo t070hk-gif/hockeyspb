@@ -804,7 +804,7 @@ def format_caption(date_label: str, matches: list, video_index: dict,
                 # Список голов показываем ТОЛЬКО пока матч идёт онлайн —
                 # после окончания (счёт уже известен) список голов больше
                 # НЕ показываем вообще, остаётся только итоговый счёт.
-                spoiler_block = f"<blockquote>{spoiler_text}</blockquote>"
+                spoiler_block = None              # список голов и счёт — на баннере
                 if last_goal is not None:
                     _, g_team, g_num, g_player, g_period = last_goal
                     last_goal_line = (f"⚡ <b>Гол!</b> {g_num}.{g_player}, {g_period}, "
@@ -848,8 +848,7 @@ def format_caption(date_label: str, matches: list, video_index: dict,
             common_lines = [team_line, time_line]
         if live_score_line_text:
             common_lines.append(live_score_line_text)
-        if last_goal_line:
-            common_lines.append(last_goal_line)
+        # «⚡ Гол!» — тоже только на баннере
 
         full_lines = common_lines + ([spoiler_block] if spoiler_block else []) + result_lines
         mid_lines = common_lines + ([one_line_summary] if one_line_summary else []) + result_lines
