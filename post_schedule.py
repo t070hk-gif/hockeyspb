@@ -591,6 +591,15 @@ def _details_retry_mark(game_id):
         pass
 
 
+def _icon(key, fallback):
+    """Свой значок площадки (emoji_icons.py) или обычный эмодзи."""
+    try:
+        import emoji_icons
+        return emoji_icons.tag(key, fallback)
+    except Exception:
+        return fallback
+
+
 def _youtube_url(date_label, team1, team2, age, rossii=False, module="youtube_watch"):
     """Ссылка на видео матча на YouTube / RUTUBE (youtube_watch.py, rutube_watch.py) или None."""
     try:
@@ -643,15 +652,15 @@ def format_caption(date_label: str, matches: list, video_index: dict,
         # Пока видео не подтянулось — обычный текст без ссылки, чтобы сразу
         # визуально было видно, для каких матчей видео ещё не появилось.
         if video_url:
-            team_line = f"📺 <a href=\"{video_url}\">{m['team1']} - {m['team2']}</a>"
+            team_line = f"{_icon('vk', '📺')} <a href=\"{video_url}\">{m['team1']} - {m['team2']}</a>"
         else:
             team_line = f"📺 {m['team1']} - {m['team2']}"
         yt_url = _youtube_url(date_label, m["team1"], m["team2"], age, is_rossii_domain)
         if yt_url:
-            team_line += f"\n▶️ <a href=\"{yt_url}\">Смотреть на YouTube</a>"
+            team_line += f"\n{_icon('youtube', '▶️')} <a href=\"{yt_url}\">Смотреть на YouTube</a>"
         rt_url = _youtube_url(date_label, m["team1"], m["team2"], age, is_rossii_domain, "rutube_watch")
         if rt_url:
-            team_line += f"\n▶️ <a href=\"{rt_url}\">Смотреть на RUTUBE</a>"
+            team_line += f"\n{_icon('rutube', '▶️')} <a href=\"{rt_url}\">Смотреть на RUTUBE</a>"
 
         # Ищем этот же матч в данных spb.fhr.ru (по нормализованным именам
         # команд + дате) — если найден, используем его game_id для ссылки
