@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw
 BASE = Path(__file__).parent
 ICONS_DIR = BASE / "emoji_icons"
 MAP_FILE = BASE / "emoji_icons.json"          # {"rutube": "custom_emoji_id", ..., "_ok": true}
-FALLBACK = {"vk": "🔵", "youtube": "🔴", "rutube": "⚫"}   # пока нет своих значков
+FALLBACK = {"vk": "📺", "youtube": "▶️", "rutube": "🎬"}   # пока нет своих значков
 
 sys.path.insert(0, str(BASE))
 from config import TG_BOT_TOKEN, ADMIN_ID  # noqa: E402
