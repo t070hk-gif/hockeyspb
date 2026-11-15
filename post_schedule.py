@@ -691,7 +691,7 @@ def format_caption(date_label: str, matches: list, video_index: dict,
         live_marker = ""
         if not effective_score:
             if is_live_now:
-                live_marker = " 🔴 LIVE"
+                live_marker = " 📡 LIVE"
             elif is_match_probably_over(date_label, m["time"]):
                 # Больше GAME_DURATION с начала — вероятно, игра уже
                 # закончилась, просто результат ещё нигде не появился.
@@ -760,7 +760,11 @@ def format_caption(date_label: str, matches: list, video_index: dict,
                     # что-то уже есть — показываем это, не оставляем пусто.
                     periods_breakdown = cached
 
-        live_score_line_text = f"Live-счёт: {live_score_line}" if live_score_line else None
+        live_score_line_text = None                # live-счёт — на баннере, не в тексте
+        if live_score_line:
+            _LIVE_SCORES[spb_key] = live_score_line
+            if periods_breakdown and spb_match:
+                _LIVE_BREAKDOWN[spb_match["game_id"]] = periods_breakdown
 
         spoiler_block = None
         last_goal_line = None
@@ -1275,6 +1279,8 @@ SPB_EXTRA_SOURCES = {
 SPB_MANUAL_GROUPS = {"24813590": ["25856129", "25856164"]}   # у 2017 кнопок групп на сайте нет
 SPB_GROUPS_CACHE_FILE = Path(__file__).parent / "spb_groups_cache.json"
 _RESULTS_DETAILS_CACHE = {}
+_LIVE_SCORES = {}        # ключ матча -> live-счёт (для баннера)
+_LIVE_BREAKDOWN = {}     # game_id -> голы по ходу матча (для баннера)
 _SPB_GROUP_LINK_RE = re.compile(r'data-ajax-link="([^"]+)">\s*Группа\s*[А-ЯA-Z0-9]+\s*</div>')
 _SPB_ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.S)
 _SPB_SCORE_RE = re.compile(r'<div class="cell score[^"]*">\s*(.*?)\s*</div>', re.S)
@@ -1448,7 +1454,7 @@ def _protocol_extras(m, spb_lookup, score):
 def _goals_for_banner(m, spb_lookup):
     """Авторы голов каждой команды для баннера: ["Попов 18'", ...] по минутам."""
     sm = (spb_lookup or {}).get(build_match_key(plain_date(m["date"]), m["team1"], m["team2"]))
-    breakdown = _RESULTS_DETAILS_CACHE.get(sm["game_id"]) if sm else None
+    breakdown = (_RESULTS_DETAILS_CACHE.get(sm["game_id"]) or _LIVE_BREAKDOWN.get(sm["game_id"])) if sm else None
     if not breakdown:
         return [], []
     import difflib
@@ -1487,6 +1493,8 @@ def _results_image(state_key, banner_path, day_matches, spb_lookup, title, known
         if not score and spb_lookup:
             sm = spb_lookup.get(build_match_key(plain_date(m["date"]), m["team1"], m["team2"]))
             score = (sm or {}).get("score")
+        if not score:                              # идёт матч — live-счёт сразу на баннер
+            score = _LIVE_SCORES.get(build_match_key(plain_date(m["date"]), m["team1"], m["team2"]))
         g1, g2 = _goals_for_banner(m, spb_lookup)
         extra = _protocol_extras(m, spb_lookup, score)
         p1, p2 = extra.get("goals1", []), extra.get("goals2", [])
@@ -1604,6 +1612,7 @@ def edit_media(message_id, image_path, caption, topic_id=None):
 def _update_day_post(existing, state, state_key, topic_id, banner_path, caption,
                      day_matches, spb_lookup, title, label, dry_run):
     global _results_edits_done
+    existing["banner"], existing["title"] = str(banner_path), title   # для live_watcher.py
     img, img_fp = _results_image(state_key, banner_path, day_matches, spb_lookup, title,
                                  existing.get("image_fp"))
     image_changed = img_fp != existing.get("image_fp") or existing.get("style") != BANNER_STYLE

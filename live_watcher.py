@@ -133,13 +133,25 @@ def run_once(dry_run: bool) -> None:
                                         session, spb_details_cache, domain=domain, age=age)
 
         existing = state.get(state_key)
-        if existing is None or existing.get("caption") == caption:
-            continue  # либо поста ещё нет (не наша забота), либо ничего не изменилось
+        if existing is None:
+            continue  # поста ещё нет — не наша забота
+        # live-счёт теперь на баннере: перерисовываем картинку, если счёт/голы изменились
+        img, img_fp = None, existing.get("image_fp")
+        if existing.get("banner") and Path(existing["banner"]).exists():
+            img, img_fp = sched._results_image(state_key, Path(existing["banner"]), day_matches, spb_lookup,
+                                               existing.get("title", ""), existing.get("image_fp"))
+        image_changed = img is not None and img_fp != existing.get("image_fp")
+        if existing.get("caption") == caption and not image_changed:
+            continue  # ничего не изменилось
 
-        print(f"[LIVE-ОБНОВЛЕНИЕ] {state_key} — {date_label}")
+        print(f"[LIVE-ОБНОВЛЕНИЕ{' + баннер' if image_changed else ''}] {state_key} — {date_label}")
         if not dry_run:
             try:
-                sched.edit_caption(existing["message_id"], caption)
+                if image_changed:
+                    sched.edit_media(existing["message_id"], img, caption, entry.get("topic_id"))
+                    existing["image_fp"] = img_fp
+                else:
+                    sched.edit_caption(existing["message_id"], caption)
                 existing["caption"] = caption
                 sched.save_state(state)
                 updated_count += 1
