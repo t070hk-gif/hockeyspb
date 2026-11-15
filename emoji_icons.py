@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw
 BASE = Path(__file__).parent
 ICONS_DIR = BASE / "emoji_icons"
 MAP_FILE = BASE / "emoji_icons.json"          # {"rutube": "custom_emoji_id", ..., "_ok": true}
-FALLBACK = {"vk": "📺", "youtube": "▶️", "rutube": "▶️"}
+FALLBACK = {"vk": "🔵", "youtube": "🔴", "rutube": "⚫"}   # пока нет своих значков
 
 sys.path.insert(0, str(BASE))
 from config import TG_BOT_TOKEN, ADMIN_ID  # noqa: E402
@@ -119,7 +119,7 @@ def _sticker_file_id(name, emoji_id):
 
 def tag(key, fallback=None):
     """HTML для поста: свой значок, если проверен (--test), иначе обычный эмодзи."""
-    fb = fallback or FALLBACK.get(key, "")
+    fb = FALLBACK.get(key) or fallback or ""
     m = load_map()
     if m.get("_ok") and m.get(key):
         return f'<tg-emoji emoji-id="{m[key]}">{fb}</tg-emoji>'
