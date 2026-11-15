@@ -1429,6 +1429,10 @@ def _protocol_summary(game_id, expected_goals, url=None):
         except Exception:
             _protocol_cache = {}
     entry = _protocol_cache.get(str(game_id))
+    if entry:
+        have = sum(len(v) for v in ((entry.get("summary") or {}).get("goals") or {}).values())
+        if have < expected_goals:
+            entry["complete"] = False          # с тех пор забили ещё — протокол устарел, перечитать
     if entry and (entry.get("complete") or time.time() - entry.get("fetched", 0) < PROTOCOL_RETRY_SECONDS):
         return entry.get("summary")
     try:
