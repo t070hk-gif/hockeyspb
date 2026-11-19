@@ -2328,6 +2328,7 @@ def _prep_title(title):
         year = str(season - int(m.group(1)) + 1)
         t = _U_AGE_RE.sub("", t, count=1)
     t = re.sub(r"(Санкт-Петербург[а-я]*)-(?=[А-ЯЁ])", r"\1 - ", t)   # «Санкт-Петербург-Команда»
+    t = re.sub(r"(?<=[а-яё])-(?=Санкт-Петербург)", " - ", t)          # «Команда-Санкт-Петербург»
     if year:
         t = t.replace(" |", f" {year} |", 1) if " |" in t else f"{t} {year}"
     return t.strip()
