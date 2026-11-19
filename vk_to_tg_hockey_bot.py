@@ -2345,5 +2345,62 @@ def parse_video_title(title, *args, **kwargs):
     return r
 
 
+
+
+# --- подтверждение по официальному расписанию (сборные и команды, которых нет в teams.json) ---
+_parse_video_title_v1 = parse_video_title
+_FX_CACHE = {}
+
+
+def _stems(name):
+    n = (name or "").lower().replace("ё", "е")
+    n = re.sub(r"(?<![а-яa-z])(сб|сборная|команда|хк|жхк)(?![а-яa-z])\.?", " ", n)
+    return {w[:5] for w in re.findall(r"[a-zа-я]{4,}", n)}
+
+
+def _official_fixtures():
+    f = Path(__file__).parent / "official_fixtures.json"
+    try:
+        m = f.stat().st_mtime
+        if _FX_CACHE.get("m") != m:
+            d = json.loads(f.read_text(encoding="utf-8"))
+            _FX_CACHE.update(m=m, items=d if isinstance(d, list) else list(d.values()))
+        return _FX_CACHE["items"]
+    except Exception as e:
+        print(f"[WARN] official_fixtures.json не прочитан: {e}")
+        return []
+
+
+def parse_video_title(title, *args, **kwargs):
+    r = _parse_video_title_v1(title, *args, **kwargs)
+    if not r or not r.get("teams") or r.get("teams_verified") or not r.get("date"):
+        return r
+    parts = re.split(r"\s+[-–—]\s+", r["teams"], maxsplit=1)
+    if len(parts) != 2:
+        return r
+    a, b = _stems(parts[0]), _stems(parts[1])
+    if not a or not b:
+        return r
+    hits = []
+    for x in _official_fixtures():
+        if x.get("date") != r["date"] or (r.get("age") and x.get("age") and x["age"] != r["age"]):
+            continue
+        k = (x.get("key") or "").split("::")
+        if len(k) < 2 or "|" not in k[1]:
+            continue
+        f1, f2 = (_stems(t) for t in k[1].split("|", 1))
+        if f1 and f2 and {frozenset(f1), frozenset(f2)} == {frozenset(a), frozenset(b)}:
+            hits.append(x)
+    if len(hits) == 1:
+        x = hits[0]
+        n1, n2 = x["key"].split("::")[1].split("|", 1)
+        n1, n2 = x.get("team1") or n1.title(), x.get("team2") or n2.title()
+        r["teams"] = f"{n1} - {n2}"
+        r["teams_verified"] = True
+        r["age"] = r.get("age") or x.get("age")
+        print(f"[OK] Команды подтверждены по расписанию: {title[:70]} → {r['teams']}")
+    return r
+
+
 if __name__ == "__main__":
     main()
