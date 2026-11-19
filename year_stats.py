@@ -35,7 +35,7 @@ import spb_fhr_client
 import spb_protocol
 import generate_banner_v3 as tb
 import festive
-from config import TG_BOT_TOKEN, ADMIN_ID
+from config import TG_BOT_TOKEN, TG_CHAT_ID, ADMIN_ID
 with redirect_stdout(io.StringIO()):
     import post_schedule as ps
 

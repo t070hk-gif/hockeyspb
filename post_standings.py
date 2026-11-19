@@ -795,7 +795,7 @@ def _update_table(age, tournament_type, tournament_slug, year_id, state, dry_run
         return
     if same_shape and str(existing.get("fingerprint", "")).startswith('{"data"'):
         existing["fingerprint"] = fingerprint          # переход на новый отпечаток — без перерисовки
-        existing["source"] = "spb" if fell_back else "fhspb"
+        existing["source"] = "spb" if (fell_back or tournament_slug == KUBOK_FEDERATION_SLUG) else "fhspb"
         save_state(state)
         return
     label = ("НОВАЯ ТАБЛИЦА" if existing is None else
@@ -821,7 +821,7 @@ def _update_table(age, tournament_type, tournament_slug, year_id, state, dry_run
             for i, (mid, path) in enumerate(zip(old_ids, paths)):
                 edit_photo(mid, path, caption=title if i == 0 else "")
             existing["fingerprint"] = fingerprint
-            existing["source"] = "spb" if fell_back else "fhspb"
+            existing["source"] = "spb" if (fell_back or tournament_slug == KUBOK_FEDERATION_SLUG) else "fhspb"
             save_state(state)
             time.sleep(1)
             return
@@ -834,7 +834,7 @@ def _update_table(age, tournament_type, tournament_slug, year_id, state, dry_run
     ids = send_album(topic_id, paths, title) if album else [send_photo(topic_id, paths[0], caption=title)]
     pin_message(ids[0])
     entry = {"message_id": ids[0], "message_ids": ids, "fingerprint": fingerprint,
-             "source": "spb" if fell_back else "fhspb"}
+             "source": "spb" if (fell_back or tournament_slug == KUBOK_FEDERATION_SLUG) else "fhspb"}
     if existing and existing.get("reposted_on"):
         entry["reposted_on"] = existing["reposted_on"]
     state[state_key] = entry

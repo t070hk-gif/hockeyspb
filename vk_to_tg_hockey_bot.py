@@ -591,7 +591,6 @@ def _expand_rossii_abbreviations(title: str) -> str:
 #      дату публикации видео в ВК как разумный fallback.
 #   4. Явно нехоккейный контент (водное поло и т.п.) отфильтровываем.
 
-from datetime import datetime
 
 RU_MONTHS = {
     'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4, 'мая': 5, 'июня': 6,
