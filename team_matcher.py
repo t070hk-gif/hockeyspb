@@ -139,8 +139,8 @@ def load_alias_groups() -> list:
         try:
             extra = json.loads(ALIASES_FILE.read_text(encoding="utf-8"))
             groups.extend(list(g) for g in extra if isinstance(g, list))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] {ALIASES_FILE.name} не прочитан ({e}) — дополнительные названия команд не учтены")
     return groups
 
 
