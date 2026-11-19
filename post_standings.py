@@ -760,7 +760,7 @@ def _republish_table(entry, state_key, age, title):
     return True
 
 
-def process_tournament(age, tournament_type, tournament_slug, year_id, state, dry_run):
+def _update_table(age, tournament_type, tournament_slug, year_id, state, dry_run):
     topic_id = TOPIC_IDS[age]
 
     by_group = fetch_standings_by_group(tournament_slug, year_id)
@@ -956,7 +956,7 @@ def _maybe_daily_repost(age, tournament_type, tournament_slug, year_id, state, d
         save_state(state)
 
 
-_process_tournament_single_post = process_tournament
+_process_tournament_single_post = _update_table
 
 
 def process_tournament(age, tournament_type, tournament_slug, year_id, state, dry_run):
