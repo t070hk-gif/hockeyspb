@@ -2311,5 +2311,38 @@ def main() -> None:
         seconds_since_vk_check += ADMIN_CHECK_INTERVAL
 
 
+
+
+# --- разбор «турнирных» заголовков: «Территория хоккея U15. Санкт-Петербург-Республика Беларусь | дата» ---
+_parse_video_title_orig = parse_video_title
+_U_AGE_RE = re.compile(r"\b[UУ]\s?(\d{2})\b\.?\s*", re.I)
+
+
+def _prep_title(title):
+    t = re.sub(r"(?i)территория\s+хоккея\.?\s*", "", title or "")
+    m = _U_AGE_RE.search(t)
+    year = ""
+    if m:                                    # U15 в сезоне 2026/27 → 2012 г.р.
+        now = datetime.now()
+        season = now.year if now.month >= 7 else now.year - 1
+        year = str(season - int(m.group(1)) + 1)
+        t = _U_AGE_RE.sub("", t, count=1)
+    t = re.sub(r"(Санкт-Петербург[а-я]*)-(?=[А-ЯЁ])", r"\1 - ", t)   # «Санкт-Петербург-Команда»
+    if year:
+        t = t.replace(" |", f" {year} |", 1) if " |" in t else f"{t} {year}"
+    return t.strip()
+
+
+def parse_video_title(title, *args, **kwargs):
+    r = _parse_video_title_orig(title, *args, **kwargs)
+    if r and not r.get("teams"):
+        t2 = _prep_title(title)
+        if t2 != title:
+            r2 = _parse_video_title_orig(t2, *args, **kwargs)
+            if r2 and r2.get("teams"):
+                return r2
+    return r
+
+
 if __name__ == "__main__":
     main()
