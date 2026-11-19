@@ -375,14 +375,20 @@ def sync():
     except FileExistsError:
         if time.time() - lock.stat().st_mtime < 900:
             return
-        lock.rmdir()
+        try:
+            lock.rmdir()
+        except FileNotFoundError:
+            pass
         lock.mkdir()
     try:
         {"primary": sync_primary, "standby": sync_standby}.get(role(), lambda: None)()
     except Exception as e:
         log(f"ошибка синхронизации: {e}")
     finally:
-        lock.rmdir()
+        try:
+            lock.rmdir()
+        except FileNotFoundError:
+            pass
 
 
 # ----------------------------------------------------------------- установка
