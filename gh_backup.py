@@ -41,10 +41,27 @@ TAKEBACK_WAIT = int(os.environ.get("GH_TAKEBACK_WAIT", "300"))
 
 
 # ----------------------------------------------------------------- помощники
+GIT_TIMEOUT = 120                                          # git не может висеть дольше 2 минут
+GIT_ENV = dict(os.environ, GIT_TERMINAL_PROMPT="0",
+               GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4")
+
+
+def _redact(text):
+    """Убрать секреты (токен Telegram, токен GitHub в адресе) из текста перед записью в лог."""
+    text = re.sub(r"bot\d+:[\w-]+", "bot***", str(text))
+    return re.sub(r"https://[^@\s/]+@", "https://***@", text)
+
+
 def git(*args, cwd=BOT, check=True):
-    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    try:
+        r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True,
+                           env=GIT_ENV, timeout=GIT_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        if check:
+            raise RuntimeError(f"git {args[0]}: нет ответа {GIT_TIMEOUT} с")
+        return ""
     if check and r.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip() or r.stdout.strip()}")
+        raise RuntimeError(_redact(f"git {' '.join(args)}: {r.stderr.strip() or r.stdout.strip()}"))
     return r.stdout.strip()
 
 
@@ -57,7 +74,7 @@ def role():
 
 
 def log(msg):
-    print(f"{time.strftime('%d.%m %H:%M:%S')} {msg}", flush=True)
+    print(f"{time.strftime('%d.%m %H:%M:%S')} {_redact(msg)}", flush=True)
 
 
 def notify(text):
@@ -103,10 +120,15 @@ def ensure_state_repo():
     git("config", "user.email", "vk-bot@localhost", cwd=STATE_DIR)
 
 
-def fetch_meta():
-    """Последний снимок с GitHub в STATE_DIR; возвращает его meta.json ({} — снимков ещё нет)."""
+def fetch_meta(strict=False):
+    """Последний снимок с GitHub в STATE_DIR; возвращает его meta.json ({} — снимков ещё нет).
+    strict=True: GitHub недоступен — ошибка, а не {} (чтобы основной не решил, что работает один)."""
     ensure_state_repo()
-    if subprocess.run(["git", "fetch", "-q", "origin", "state"], cwd=STATE_DIR, capture_output=True).returncode != 0:
+    try:
+        git("fetch", "-q", "origin", "state", cwd=STATE_DIR)
+    except RuntimeError as e:
+        if strict and "couldn't find remote ref" not in str(e):
+            raise
         return {}
     git("checkout", "-q", "-B", "state", "origin/state", cwd=STATE_DIR)
     git("reset", "-q", "--hard", "origin/state", cwd=STATE_DIR)
@@ -168,24 +190,25 @@ def bots_running():
 
 # ----------------------------------------------------------------- синхронизация
 def sync_primary():
-    meta = fetch_meta()
+    meta = fetch_meta(strict=True)
     if meta.get("active") in ("standby", "cloud"):
         who = "облака" if meta.get("active") == "cloud" else "резервного компьютера"
         n = _takeback(meta)
         log(f"забрал у {who} {n} файлов состояния")
         notify("✅ MacBook снова в работе: данные облака забраны, облако остановлено" if meta.get("active") == "cloud"
                else "✅ MacBook снова в работе: данные с резервного компьютера забраны, резервный остановлен")
-    (BOT / ".primary_ok").touch()
     git("add", "-A")                                          # автосохранение кода
     if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=BOT).returncode != 0:
         git("commit", "-qm", f"Автосохранение {time.strftime('%d.%m.%Y %H:%M')}")
     git("push", "-qf", "origin", "HEAD:code", check=False)
     push_snapshot({"active": "primary"})
+    (BOT / ".primary_ok").touch()       # боты работают, только пока «сердцебиение» доходит до GitHub
 
 
 def sync_standby():
     active = (BOT / ".standby_active").exists()
-    if not active and subprocess.run(["git", "fetch", "-q", "origin", "code"], cwd=BOT, capture_output=True).returncode == 0:
+    if not active and subprocess.run(["git", "fetch", "-q", "origin", "code"], cwd=BOT, capture_output=True,
+                                     env=GIT_ENV, timeout=GIT_TIMEOUT).returncode == 0:
         if git("rev-parse", "HEAD") != git("rev-parse", "FETCH_HEAD"):
             git("reset", "-q", "--hard", "FETCH_HEAD")            # свежий код с MacBook
     meta = fetch_meta()
@@ -218,6 +241,9 @@ def sync_standby():
             time.sleep(5)
         push_snapshot({"active": "released"})
         log("MacBook вернулся — работу отдал")
+    elif meta.get("active") != "standby":
+        (BOT / ".standby_active").unlink(missing_ok=True)
+        log(f"работу уже забрал {meta.get('active')} — остановился")
     else:
         push_snapshot({"active": "standby"})
 
@@ -226,10 +252,14 @@ def _takeback(meta):
     """Попросить работу у того, кто сейчас работает, дождаться «освободил» (до TAKEBACK_WAIT) и забрать состояние."""
     push_snapshot(dict(meta, request="takeback"), take_local=False)
     deadline = time.time() + TAKEBACK_WAIT
+    released = False
     while time.time() < deadline:
         time.sleep(1 if TEST else 15)
         if fetch_meta().get("active") == "released":
+            released = True
             break
+    if not released:
+        log(f"⚠️ ответа «освободил» нет {TAKEBACK_WAIT // 60} мин — забираю работу принудительно")
     return restore()
 
 
@@ -327,6 +357,9 @@ def cloud_work():
                 log(f"{' '.join(cmd[1:])}: {e}")
         cycle += 1
         now = fetch_meta()
+        if now and now.get("active") != "cloud":
+            log(f"работу уже забрал {now.get('active')} — остановился")
+            return
         if now.get("request") == "takeback":
             push_snapshot({"active": "released"})
             log("компьютер вернулся — работу отдал")
@@ -368,27 +401,59 @@ def cloud_plan():
     return need
 
 
-def sync():
-    lock = HOME / ".vkbot-sync.lock"
+ERR_FILE = HOME / ".vkbot-sync.err"
+
+
+def _sync_failed(e):
+    """Ошибку пишем при первом сбое и потом раз в 30 минут, а не каждую минуту."""
+    now = time.time()
     try:
-        lock.mkdir()
-    except FileExistsError:
-        if time.time() - lock.stat().st_mtime < 900:
-            return
+        st = json.loads(ERR_FILE.read_text())
+    except Exception:
+        st = {}
+    since = st.get("since", now)
+    mins = (now - since) / 60
+    if not st or now - st.get("logged", 0) >= 1800:
+        log(f"ошибка синхронизации{f' (уже {mins:.0f} мин)' if st else ''}: {e}")
+        st["logged"] = now
+    if role() == "primary" and mins >= 5 and not st.get("notified"):
+        notify("⚠️ MacBook не может связаться с GitHub больше 5 минут — боты на MacBook приостановлены, "
+               "чтобы не было двойных постов. Работу подхватит резервный компьютер или облако.")
+        st["notified"] = True
+    st["since"] = since
+    ERR_FILE.write_text(json.dumps(st))
+
+
+def _sync_ok():
+    if ERR_FILE.exists():
         try:
-            lock.rmdir()
-        except FileNotFoundError:
+            mins = (time.time() - json.loads(ERR_FILE.read_text())["since"]) / 60
+            log(f"синхронизация снова работает (сбой длился {mins:.0f} мин)")
+        except Exception:
             pass
-        lock.mkdir()
+        ERR_FILE.unlink(missing_ok=True)
+
+
+def sync():
+    import fcntl
+    old = HOME / ".vkbot-sync.lock"                   # старый замок-папка больше не нужен
+    if old.is_dir():
+        try:
+            old.rmdir()
+        except OSError:
+            pass
+    fh = open(HOME / ".vkbot-sync.flock", "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)  # снимается сам, даже если процесс упал
+    except BlockingIOError:
+        return                                        # предыдущий запуск ещё работает
     try:
         {"primary": sync_primary, "standby": sync_standby}.get(role(), lambda: None)()
+        _sync_ok()
     except Exception as e:
-        log(f"ошибка синхронизации: {e}")
+        _sync_failed(e)
     finally:
-        try:
-            lock.rmdir()
-        except FileNotFoundError:
-            pass
+        fh.close()
 
 
 # ----------------------------------------------------------------- установка
