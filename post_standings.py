@@ -238,25 +238,13 @@ FONT_BOLD_PATH = str(Path(__file__).parent / "fonts" / "PT_Sans-Web-Bold.ttf")
 SCALE = 6
 
 IMG_WIDTH = 480 * SCALE
-ROW_HEIGHT = 22 * SCALE
 HEADER_HEIGHT = 40 * SCALE
 GROUP_HEADER_HEIGHT = 26 * SCALE
 PADDING = 12 * SCALE
 
 COL_RANK_W = 24 * SCALE
 COL_STATS_W = 32 * SCALE
-COL_TEAM_W = IMG_WIDTH - 2 * PADDING - COL_RANK_W - 4 * COL_STATS_W
 
-COLOR_BG = (255, 255, 255)
-COLOR_HEADER_BG = (11, 18, 32)  # #0B1220 — тот же тёмный фон, что у баннеров матчей
-COLOR_HEADER_ACCENT = (0, 194, 255)  # #00C2FF — акцентный голубой, как у баннеров
-COLOR_HEADER_TEXT = (255, 255, 255)
-COLOR_GROUP_BG = (230, 235, 245)
-COLOR_GROUP_TEXT = (20, 30, 60)
-COLOR_TABLE_HEADER_BG = (245, 246, 248)
-COLOR_TEXT = (20, 20, 20)
-COLOR_ROW_ALT = (248, 249, 250)
-COLOR_BORDER = (220, 220, 220)
 
 
 NAME_DISPLAY_OVERRIDES = {
@@ -557,20 +545,6 @@ def send_photo(topic_id, image_path, caption=""):
     return result["result"]["message_id"]
 
 
-def pin_message(message_id):
-    """Закрепляет пост в теме — вызывается один раз, сразу после создания
-    НОВОГО поста турнирной таблицы (не при каждом обновлении — закреплять
-    уже закреплённое сообщение не нужно). Ошибки закрепления не считаем
-    критичными (например, если у бота почему-то нет прав) — просто
-    сообщаем и продолжаем, самого поста это не касается."""
-    resp = _tg_post(
-        f"https://api.telegram.org/bot{TG_BOT_TOKEN}/pinChatMessage",
-        data={"chat_id": TG_CHAT_ID, "message_id": message_id, "disable_notification": True},
-        timeout=30,
-    )
-    result = resp.json()
-    if not result.get("ok"):
-        print(f"[WARN] Не удалось закрепить пост {message_id}: {result}")
 
 
 def edit_photo(message_id, image_path, caption=""):
