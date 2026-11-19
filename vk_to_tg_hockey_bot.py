@@ -120,7 +120,7 @@ def send_admin_alert(message: str) -> None:
         pass
 
 
-POLL_INTERVAL_SECONDS = 300  # как часто проверять новые посты (5 минут)
+POLL_INTERVAL_SECONDS = 120  # как часто проверять новые посты (5 минут)
 POSTS_PER_CHECK = 20         # сколько последних постов стены смотреть за раз
 
 STATE_FILE = Path(__file__).parent / "state.json"

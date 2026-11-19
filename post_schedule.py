@@ -1122,7 +1122,7 @@ def _save_official_data(official_keys):
 
 # ================= Первенство: пометки ОТ / ПБ со spb.fhr.ru =================
 PERV_OT_CACHE_FILE = Path(__file__).parent / "pervenstvo_ot_cache.json"
-PERV_OT_RETRY_SECONDS = 1800
+PERV_OT_RETRY_SECONDS = 600
 PERV_SPB_TOURNAMENT_ID = "24813508"
 PERV_SPB_SLUG = "pervenstvo-spb-24813508"
 PERV_SPB_YEAR_IDS = {
@@ -1412,7 +1412,7 @@ except Exception as _e:
     print(f"[WARN] spb_protocol.py недоступен ({_e}) — без вратарей и штрафов на баннере")
     spb_protocol = None
 PROTOCOL_CACHE_FILE = Path(__file__).parent / "spb_protocol_cache.json"
-PROTOCOL_RETRY_SECONDS = 900
+PROTOCOL_RETRY_SECONDS = 180
 _protocol_cache = None
 _protocol_session = None
 _PROTOCOL_SESSIONS = {}
