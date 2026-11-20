@@ -2320,6 +2320,12 @@ _U_AGE_RE = re.compile(r"\b[UУ]\s?(\d{2})\b\.?\s*", re.I)
 
 def _prep_title(title):
     t = re.sub(r"(?i)территория\s+хоккея\.?\s*", "", title or "")
+    t = re.sub(r"(?i)первенство\s+санкт-петербурга\.?\s*", "", t)          # название турнира
+    t = re.sub(r"📍.*$", "", t)                                              # арена в конце
+    t = re.sub(r"\s*(?:🆚|\bVS\b|\bvs\.?)\s*", " - ", t)                 # 🆚 / vs → дефис
+    t = re.sub(r"(?i)⏰\s*начало\s+в", " ", t)
+    t = re.sub(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F]", " ", t)    # прочие эмодзи
+    t = re.sub(r"\s{2,}", " ", t)
     m = _U_AGE_RE.search(t)
     year = ""
     if m:                                    # U15 в сезоне 2026/27 → 2012 г.р.
