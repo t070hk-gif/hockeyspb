@@ -462,7 +462,9 @@ def _entry_matches_teams(entry: dict, team1: str, team2: str) -> bool:
         if not words:
             return True
         longest_word = max(words, key=len)
-        return longest_word.upper() in title_no_sep
+        w = longest_word.upper()
+        # падежи: «ПЕТЕРБУРГА» ↔ «Петербург», «МОСКВЫ» ↔ «Москва» — сверяем основу слова
+        return w in title_no_sep or (len(w) >= 6 and w[:-2] in title_no_sep)
 
     if _team_recognized(team1) and _team_recognized(team2):
         return True
