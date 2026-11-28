@@ -37,6 +37,7 @@ jobs:
         if: steps.check.outputs.work == 'yes'
         env:
           CLOUD_MODE: ${{ steps.check.outputs.mode }}
+          VK_SERVICE_KEY: ${{ secrets.VK_SERVICE_KEY }}   # необязательно: иначе ключ берётся из config.json снимка
         run: |
           md=$(date +%m%d)
           if [ "$md" -ge 1215 ] || [ "$md" -le 0110 ]; then sudo apt-get install -y -qq ffmpeg > /dev/null; fi
