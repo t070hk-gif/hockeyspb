@@ -449,3 +449,66 @@ def test_cover_match():
     assert r and r["age"] == "14" and r["team2"] == "северсталь", why
     r, why = c.match(lines, tm.match_title, {"15.11.2026": fx[d]}, [], [])
     assert r is None, why                          # дата на обложке другая — не привязываем
+
+
+def test_vk_service_key():
+    """VK: сервисный ключ из окружения/config.json вместо токена; понятная ошибка при неверном ключе."""
+    import os
+    import config
+    os.environ.pop("VK_SERVICE_KEY", None)
+    assert config.get_vk_service_key() == ""
+    os.environ["VK_SERVICE_KEY"] = "  envkey1234567890  "
+    assert config.get_vk_service_key() == "envkey1234567890"
+    cfg_file = HERE / "config.json"
+    saved = cfg_file.read_text(encoding="utf-8")
+    try:
+        os.environ.pop("VK_SERVICE_KEY")
+        cfg_file.write_text(json.dumps({**json.loads(saved), "vk_service_key": "filekey1234567890"}), encoding="utf-8")
+        assert config.get_vk_service_key() == "filekey1234567890"
+        os.environ["VK_SERVICE_KEY"] = "envkey1234567890"
+        assert config.get_vk_service_key() == "envkey1234567890"      # окружение важнее файла
+    finally:
+        cfg_file.write_text(saved, encoding="utf-8")
+    assert "secretvalue123" not in config._redact("GET ...?access_token=secretvalue123&v=5.199")
+
+    with quiet():
+        import vk_to_tg_hockey_bot as bot
+    assert not (HERE / "vk_tokens.json").exists()
+    alerts, calls = [], []
+    bot.send_admin_alert = alerts.append
+    bot.VK_MIN_CALL_INTERVAL = 0
+    bot.time.sleep = lambda s: None
+
+    class Resp:
+        def __init__(self, data): self.data = data
+        def json(self): return self.data
+
+    answers = []
+    bot.requests.get = lambda url, params=None, timeout=None: (calls.append((url, params)), Resp(answers.pop(0)))[1]
+
+    os.environ["VK_SERVICE_KEY"] = "envkey1234567890"
+    assert bot.load_tokens() == {}                                    # vk_tokens.json не нужен
+    assert bot.get_valid_access_token({}) == ("envkey1234567890", {})
+
+    answers[:] = [{"error": {"error_code": 5, "error_msg": "User authorization failed: invalid access_token (4)."}}]
+    with quiet():
+        assert bot.vk_get_wall_posts("envkey1234567890", 1) == []
+    assert len(alerts) == 1 and "VK_SERVICE_KEY" in alerts[0] and "envkey1234567890" not in alerts[0]
+
+    answers[:] = [{"error": {"error_code": 5, "error_msg": "bad"}}]
+    try:
+        with quiet():
+            bot.ensure_vk_token_valid("envkey1234567890")
+        raise AssertionError("неверный ключ должен останавливать бота")
+    except SystemExit as e:
+        assert "сервисный ключ" in str(e).lower() and "envkey1234567890" not in str(e)
+
+    answers[:] = [{"error": {"error_code": 6, "error_msg": "Too many requests"}}, {"response": {"items": [{"id": 1}]}}]
+    with quiet():
+        assert bot.vk_get_wall_posts("envkey1234567890", 1) == [{"id": 1}]   # код 6 — повтор, а не сбой
+    assert calls[-1][1]["access_token"] == "envkey1234567890" and calls[-1][1]["owner_id"] == -1
+
+    answers[:] = [{"response": [{"id": 1}]}]
+    with quiet():
+        bot.ensure_vk_token_valid("envkey1234567890")                  # верный ключ проходит
+    os.environ.pop("VK_SERVICE_KEY")

@@ -6,11 +6,15 @@
 вложения (attachments) внутри постов на стене группы, включая репосты
 (copy_history).
 
-ВАЖНО про токен: токены VK ID короткоживущие (~1 час, поле expires_in).
-Скрипт автоматически обновляет access_token через refresh_token перед
-каждым обращением к API, если срок жизни истёк или скоро истечёт.
-Файл vk_tokens.json (созданный get_vk_token.py) должен лежать рядом
-с этим скриптом — в нём хранится access_token И refresh_token.
+ВАЖНО про токен VK. Рекомендуемый способ — бессрочный сервисный ключ приложения
+(или токен сообщества): переменная окружения VK_SERVICE_KEY либо поле
+vk_service_key в config.json. Он не истекает и не требует входа — см. README.
+
+Запасной (старый) способ — пользовательский токен VK ID: он короткоживущий
+(~1 час, поле expires_in), скрипт обновляет его через refresh_token перед
+обращением к API. Нужен файл vk_tokens.json (его создаёт get_vk_token.py),
+в нём хранятся access_token И refresh_token. Используется, только если
+сервисный ключ не задан.
 
 Перед запуском:
     pip3 install requests --break-system-packages
@@ -81,6 +85,7 @@ VK_GROUP_IDS = [
 ROSSII_ONLY_GROUP_IDS = {25510790, 165020927, 133823152}
 
 from config import TG_BOT_TOKEN  # секреты — в config.json
+from config import get_vk_service_key  # сервисный ключ VK: переменная VK_SERVICE_KEY или config.json
 from config import TG_CHAT_ID as TG_CHANNEL_ID  # группа ВСЕССЫЛКИ.СПБ
 from config import ADMIN_ID as ADMIN_TELEGRAM_USER_ID
 ADMIN_STATE_FILE = Path(__file__).parent / "admin_conversation.json"
@@ -107,7 +112,7 @@ def send_admin_alert(message: str) -> None:
         requests.post(
             f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage",
             data={"chat_id": ADMIN_TELEGRAM_USER_ID,
-                  "text": f"⚠️ {message}\n\nБот ждёт новый токен и продолжит работу сам. "
+                  "text": f"⚠️ {message}\n\nБот ждёт исправленный ключ и продолжит работу сам. "
                           f"Повтор этого уведомления — не раньше чем через час."},
             timeout=15,
         )
@@ -142,9 +147,12 @@ def save_state(state: dict) -> None:
 
 def load_tokens() -> dict:
     if not TOKEN_FILE.exists():
-        raise SystemExit(
-            f"Файл {TOKEN_FILE} не найден. Сначала получите токен через get_vk_token.py"
-        )
+        if _vk_service_key():
+            return {}          # сервисный ключ задан — пользовательский токен не нужен
+        msg = ("VK-ключ не настроен: нет ни сервисного ключа (переменная VK_SERVICE_KEY или поле "
+               f"vk_service_key в config.json), ни файла {TOKEN_FILE.name}. Как получить ключ — в README.")
+        send_admin_alert(msg)
+        raise SystemExit(msg)
     return json.loads(TOKEN_FILE.read_text(encoding="utf-8"))
 
 
@@ -212,20 +220,18 @@ def refresh_access_token(tokens: dict) -> dict:
     return new_data
 
 
-def _vk_service_key():
-    """Бессрочный сервисный ключ приложения VK из config.json (vk_service_key) — для чтения
-    открытых видео и стен его достаточно: без входа и без продлений токена."""
-    try:
-        return json.loads((Path(__file__).parent / "config.json").read_text(encoding="utf-8")).get("vk_service_key") or ""
-    except Exception:
-        return ""
+def _vk_service_key() -> str:
+    """Бессрочный сервисный ключ приложения VK (или токен сообщества): переменная окружения
+    VK_SERVICE_KEY, иначе vk_service_key из config.json. Для чтения открытых видео и стен его
+    достаточно: без входа и без продлений токена."""
+    return get_vk_service_key()
 
 
 def get_valid_access_token(tokens: dict) -> tuple:
     """
     Возвращает (access_token, tokens) — обновляя токен, если он истёк
     или истекает в ближайшие 2 минуты.
-    Если в config.json задан vk_service_key — возвращает его (без продлений).
+    Если задан сервисный ключ (VK_SERVICE_KEY / vk_service_key) — возвращает его (без продлений).
     """
     key = _vk_service_key()
     if key:
@@ -249,21 +255,82 @@ def get_valid_access_token(tokens: dict) -> tuple:
 
 # ------------------- VK API -------------------
 
+# Ошибки авторизации VK: 5 — токен/ключ недействителен, 27 — ключ сообщества,
+# 28 — ключ приложения (сервисный ключ).
+VK_AUTH_ERROR_CODES = {5, 27, 28}
+VK_MIN_CALL_INTERVAL = 0.35      # лимит сервисного ключа — 3 запроса в секунду
+_vk_last_call = 0.0
+_vk_validated_token = None
+
+
+def vk_auth_error_text(error: dict) -> str:
+    """Понятное объяснение ошибки авторизации VK (без самого ключа)."""
+    code, msg = error.get("error_code"), error.get("error_msg", "")
+    if _vk_service_key():
+        hint = ("Сервисный ключ (VK_SERVICE_KEY / vk_service_key в config.json) неверный, "
+                "отозван или скопирован не полностью. Возьмите ключ заново в настройках "
+                "приложения VK (раздел «Ключи доступа») и обновите его — см. README.")
+    else:
+        hint = ("Пользовательский токен недействителен (истёк или отозван). Лучше перейти на "
+                "бессрочный сервисный ключ — см. README; либо заново выполните get_vk_token.py.")
+    return f"VK отклонил ключ доступа (код {code}: {msg}). {hint}"
+
+
+def vk_api(method: str, access_token: str, **params) -> dict:
+    """Вызов метода VK API: пауза между запросами, повтор при «слишком часто» (код 6).
+    Возвращает JSON-ответ как есть; об ошибке авторизации сообщает админу в Telegram."""
+    global _vk_last_call
+    data = {}
+    for attempt in range(3):
+        wait = VK_MIN_CALL_INTERVAL - (time.time() - _vk_last_call)
+        if wait > 0:
+            time.sleep(wait)
+        _vk_last_call = time.time()
+        resp = requests.get(
+            f"https://api.vk.com/method/{method}",
+            params={**params, "access_token": access_token, "v": VK_API_VERSION},
+            timeout=15,
+        )
+        data = resp.json()
+        if data.get("error", {}).get("error_code") == 6:      # Too many requests per second
+            time.sleep(1.5 * (attempt + 1))
+            continue
+        break
+    error = data.get("error")
+    if error and error.get("error_code") in VK_AUTH_ERROR_CODES:
+        text = vk_auth_error_text(error)
+        print(f"[VK AUTH] {text}")
+        send_admin_alert(text)
+    return data
+
+
+def ensure_vk_token_valid(access_token: str) -> None:
+    """Проверка ключа при старте (и после смены токена): понятная остановка вместо потока
+    ошибок «User authorization failed» в логах. Сбой сети — не причина считать ключ плохим."""
+    global _vk_validated_token
+    if access_token == _vk_validated_token:
+        return
+    try:
+        data = vk_api("groups.getById", access_token, group_ids=VK_GROUP_IDS[0])
+    except (requests.RequestException, ValueError) as e:
+        print(f"[WARN] Проверка VK-ключа не выполнена (сеть/ответ VK): {type(e).__name__}")
+        return
+    error = data.get("error")
+    if error and error.get("error_code") in VK_AUTH_ERROR_CODES:
+        raise SystemExit(vk_auth_error_text(error))
+    if error:
+        print(f"[WARN] Проверка VK-ключа: ответ VK с ошибкой {error.get('error_code')}: {error.get('error_msg')}")
+        return
+    _vk_validated_token = access_token
+    print("[VK] Ключ доступа принят"
+          + (" (сервисный ключ, бессрочный)." if _vk_service_key() else " (пользовательский токен)."))
+
+
 def vk_get_wall_posts(access_token: str, group_id: int, count: int = POSTS_PER_CHECK) -> list:
     """Получить последние посты со стены группы ВК."""
-    resp = requests.get(
-        "https://api.vk.com/method/wall.get",
-        params={
-            "owner_id": -abs(group_id),
-            "count": count,
-            "access_token": access_token,
-            "v": VK_API_VERSION,
-        },
-        timeout=15,
-    )
-    data = resp.json()
+    data = vk_api("wall.get", access_token, owner_id=-abs(group_id), count=count)
     if "error" in data:
-        print(f"[VK API error] group {group_id}: {data['error']}")
+        print(f"[VK API error] group {group_id}: {data['error'].get('error_code')} {data['error'].get('error_msg')}")
         return []
     return data.get("response", {}).get("items", [])
 
@@ -288,20 +355,9 @@ def vk_videos_still_exist(access_token: str, video_refs: list) -> set:
         return set()
 
     videos_param = ",".join(f"{owner_id}_{vid}" for owner_id, vid in video_refs)
-    for attempt in range(3):
-        time.sleep(0.4)                     # VK: не больше 3 запросов в секунду
-        resp = requests.get(
-            "https://api.vk.com/method/video.get",
-            params={"videos": videos_param, "access_token": access_token, "v": VK_API_VERSION},
-            timeout=15,
-        )
-        data = resp.json()
-        if data.get("error", {}).get("error_code") == 6:      # Too many requests per second
-            time.sleep(1.5 * (attempt + 1))
-            continue
-        break
+    data = vk_api("video.get", access_token, videos=videos_param)
     if "error" in data:
-        print(f"[VK API error - проверка удалённых видео] {data['error']}")
+        print(f"[VK API error - проверка удалённых видео] {data['error'].get('error_code')} {data['error'].get('error_msg')}")
         # При ошибке API лучше НЕ считать видео удалёнными (безопаснее
         # ничего не удалить, чем удалить существующий пост по ошибке).
         return {vid for _, vid in video_refs}
@@ -323,19 +379,9 @@ def vk_get_group_videos(access_token: str, group_id: int, count: int = VIDEO_CAT
     отличать от "каталог реально пуст", иначе базовая линия могла бы
     ошибочно "засчитаться" ещё до того, как доступ к каталогу появился.
     """
-    resp = requests.get(
-        "https://api.vk.com/method/video.get",
-        params={
-            "owner_id": -abs(group_id),
-            "count": count,
-            "access_token": access_token,
-            "v": VK_API_VERSION,
-        },
-        timeout=15,
-    )
-    data = resp.json()
+    data = vk_api("video.get", access_token, owner_id=-abs(group_id), count=count)
     if "error" in data:
-        print(f"[VK API error - video.get] group {group_id}: {data['error']}")
+        print(f"[VK API error - video.get] group {group_id}: {data['error'].get('error_code')} {data['error'].get('error_msg')}")
         return None
     return data.get("response", {}).get("items", [])
 
@@ -2273,7 +2319,13 @@ def _role_allows_run():
 
 def main() -> None:
     state = load_state()
-    tokens = load_tokens()
+    try:
+        tokens = load_tokens()
+    except SystemExit as e:
+        if "--once" in sys.argv:
+            raise
+        print(f"[FATAL] {e}")                # постоянный режим: ждём, пока ключ появится (см. цикл ниже)
+        tokens = {}
     admin_state = load_admin_state()
     print("Бот запущен. Проверка групп каждые", POLL_INTERVAL_SECONDS, "секунд.")
 
@@ -2282,6 +2334,7 @@ def main() -> None:
 
     if "--once" in sys.argv:                 # облако: один проход и выход
         access_token, tokens = get_valid_access_token(tokens)
+        ensure_vk_token_valid(access_token)
         process_admin_messages(admin_state, access_token)
         check_groups_once(state, access_token)
         return
@@ -2292,6 +2345,7 @@ def main() -> None:
             continue
         try:
             access_token, tokens = get_valid_access_token(tokens)
+            ensure_vk_token_valid(access_token)
             process_admin_messages(admin_state, access_token)
 
             if seconds_since_vk_check >= POLL_INTERVAL_SECONDS:
@@ -2299,9 +2353,9 @@ def main() -> None:
                 seconds_since_vk_check = 0
         except SystemExit as e:
             # Ошибка токена: не завершаемся (иначе перезапуск по кругу), а ждём
-            # новый токен — файл перечитывается в get_valid_access_token.
+            # исправления — ключ/файл токена перечитываются раз в минуту.
             print(f"[FATAL] {e}")
-            print("[INFO] Жду новый токен: vk_tokens.json перечитывается раз в минуту")
+            print("[INFO] Жду исправления ключа: проверка раз в минуту (config.json и vk_tokens.json перечитываются)")
             time.sleep(60)
             continue
         except Exception as e:
